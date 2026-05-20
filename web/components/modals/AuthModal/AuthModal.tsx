@@ -4,33 +4,31 @@ import { FC } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { IndieAuthModal } from '../IndieAuthModal/IndieAuthModal';
 import { FediAuthModal } from '../FediAuthModal/FediAuthModal';
+import { OIDCAuthModal } from '../OIDCAuthModal/OIDCAuthModal';
 
 import styles from './AuthModal.module.scss';
 import {
   currentUserAtom,
   chatAuthenticatedAtom,
   accessTokenAtom,
-  clientConfigStateAtom,
 } from '../../stores/ClientConfigStore';
-import { ClientConfig } from '../../../interfaces/client-config.model';
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
 
 export type AuthModalProps = {
+  // Retained for backwards compatibility; the tab bar is now always
+  // visible because the SGC fork adds a third (SSO) tab.
   forceTabs?: boolean;
 };
 
-export const AuthModal: FC<AuthModalProps> = ({ forceTabs }) => {
+export const AuthModal: FC<AuthModalProps> = () => {
   const authenticated = useRecoilValue<boolean>(chatAuthenticatedAtom);
   const accessToken = useRecoilValue<string>(accessTokenAtom);
   const currentUser = useRecoilValue(currentUserAtom);
-  const clientConfig = useRecoilValue<ClientConfig>(clientConfigStateAtom);
 
   if (!currentUser) {
     return null;
   }
   const { displayName } = currentUser;
-  const { federation } = clientConfig;
-  const { enabled: fediverseEnabled } = federation;
 
   const indieAuthTabTitle = (
     <span className={styles.tabContent}>
@@ -62,9 +60,28 @@ export const AuthModal: FC<AuthModalProps> = ({ forceTabs }) => {
     />
   );
 
+  // SGC fork: SSO/OIDC tab. Renders unconditionally; if the server has
+  // not configured OIDC, the click surfaces the "not enabled" error
+  // (symmetric with how IndieAuth/Fediverse surface their own errors).
+  const oidcAuthTabTitle = (
+    <span className={styles.tabContent}>
+      <img className={styles.icon} src="/img/owncast-logo.svg" alt="SSO" />
+      SSO
+    </span>
+  );
+
+  const oidcAuthTab = (
+    <OIDCAuthModal
+      authenticated={authenticated}
+      displayName={displayName}
+      accessToken={accessToken}
+    />
+  );
+
   const items = [
     { label: indieAuthTabTitle, key: '1', children: indieAuthTab },
     { label: fediAuthTabTitle, key: '2', children: fediAuthTab },
+    { label: oidcAuthTabTitle, key: '3', children: oidcAuthTab },
   ];
 
   return (
@@ -84,7 +101,6 @@ export const AuthModal: FC<AuthModalProps> = ({ forceTabs }) => {
           items={items}
           type="card"
           size="small"
-          renderTabBar={fediverseEnabled || forceTabs ? null : () => null}
         />
       </div>
     </ErrorBoundary>

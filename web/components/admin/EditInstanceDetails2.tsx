@@ -1,6 +1,6 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { Collapse, Typography } from 'antd';
-import { TEXTFIELD_TYPE_NUMBER, TEXTFIELD_TYPE_PASSWORD, TEXTFIELD_TYPE_URL } from './TextField';
+import { Alert, Collapse, Typography } from 'antd';
+import { TEXTFIELD_TYPE_NUMBER, TEXTFIELD_TYPE_URL } from './TextField';
 import { TextFieldWithSubmit } from './TextFieldWithSubmit';
 import { ServerStatusContext } from '../../utils/server-status-context';
 import { AlertMessageContext } from '../../utils/alert-message-context';
@@ -8,7 +8,6 @@ import {
   TEXTFIELD_PROPS_FFMPEG,
   TEXTFIELD_PROPS_RTMP_PORT,
   TEXTFIELD_PROPS_SOCKET_HOST_OVERRIDE,
-  TEXTFIELD_PROPS_ADMIN_PASSWORD,
   TEXTFIELD_PROPS_WEB_PORT,
   TEXTFIELD_PROPS_VIDEO_SERVING_ENDPOINT,
 } from '../../utils/config-constants';
@@ -16,6 +15,17 @@ import { UpdateArgs } from '../../types/config-section';
 import { ResetYP } from './ResetYP';
 
 const { Panel } = Collapse;
+
+// SGC fork: the admin is fronted by Authentik forward-auth, so the
+// `--adminpassword` value is set by the role (derived from sgc_pgsk) and
+// must not be changed from inside Owncast or the SSO Basic-injection
+// would break. Users reset their LOGIN via Authentik instead.
+//
+// Override at build time via NEXT_PUBLIC_EXTERNAL_AUTH_PASSWORD_RESET_URL
+// for different deployments.
+const EXTERNAL_AUTH_PASSWORD_RESET_URL =
+  process.env.NEXT_PUBLIC_EXTERNAL_AUTH_PASSWORD_RESET_URL ||
+  'https://auth.bskypds.pro/if/user/#/settings;%7B%22page%22%3A%22page-settings%22%7D';
 
 // eslint-disable-next-line react/function-component-definition
 export default function EditInstanceDetails() {
@@ -59,12 +69,6 @@ export default function EditInstanceDetails() {
     setMessage('Updating server settings requires a restart of your Owncast server.');
   };
 
-  const showStreamKeyChangeMessage = () => {
-    setMessage(
-      'Changing your password will log you out of the admin. You may want to refresh the page to force yourself to log back in if not prompted.',
-    );
-  };
-
   const showFfmpegChangeMessage = () => {
     if (serverStatusData.online) {
       setMessage('The updated ffmpeg path will be used when starting your next live stream.');
@@ -73,18 +77,28 @@ export default function EditInstanceDetails() {
 
   return (
     <div className="edit-server-details-container">
-      <div className="field-container field-streamkey-container">
-        <div className="left-side">
-          <TextFieldWithSubmit
-            fieldName="adminPassword"
-            {...TEXTFIELD_PROPS_ADMIN_PASSWORD}
-            value={formDataValues.adminPassword}
-            type={TEXTFIELD_TYPE_PASSWORD}
-            onChange={handleFieldChange}
-            onSubmit={showStreamKeyChangeMessage}
-          />
-        </div>
-      </div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Admin login is managed by Authentik"
+        description={
+          <>
+            Admin authentication for this Owncast instance is gated by the
+            SGC Authentik SSO; the in-app admin password is set
+            automatically by the deployment and cannot be changed from
+            here. To reset the password you log in with, update it in
+            your Authentik account settings.{' '}
+            <a
+              href={EXTERNAL_AUTH_PASSWORD_RESET_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Authentik settings →
+            </a>
+          </>
+        }
+      />
       <TextFieldWithSubmit
         fieldName="ffmpegPath"
         {...TEXTFIELD_PROPS_FFMPEG}

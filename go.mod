@@ -1,8 +1,6 @@
 module github.com/owncast/owncast
 
-go 1.24.4
-
-toolchain go1.24.11
+go 1.25.0
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9
@@ -15,6 +13,7 @@ require (
 	github.com/go-fed/httpsig v1.1.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/grafov/m3u8 v0.12.1
+	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/mattn/go-sqlite3 v1.14.33
@@ -48,14 +47,15 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coreos/go-oidc/v3 v3.18.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/google/uuid v1.5.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
@@ -72,6 +72,7 @@ require (
 	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect

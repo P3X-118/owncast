@@ -5,6 +5,7 @@ import (
 
 	"github.com/owncast/owncast/webserver/handlers/auth/fediverse"
 	"github.com/owncast/owncast/webserver/handlers/auth/indieauth"
+	"github.com/owncast/owncast/webserver/handlers/auth/oidc"
 	"github.com/owncast/owncast/webserver/handlers/generated"
 	"github.com/owncast/owncast/webserver/router/middleware"
 )
@@ -31,4 +32,12 @@ func (*ServerInterfaceImpl) RegisterFediverseOTPRequest(w http.ResponseWriter, r
 
 func (*ServerInterfaceImpl) VerifyFediverseOTPRequest(w http.ResponseWriter, r *http.Request) {
 	fediverse.VerifyFediverseOTPRequest(w, r)
+}
+
+func (*ServerInterfaceImpl) StartOIDCAuthFlow(w http.ResponseWriter, r *http.Request, params generated.StartOIDCAuthFlowParams) {
+	middleware.RequireUserAccessToken(oidc.StartAuthFlow)(w, r)
+}
+
+func (*ServerInterfaceImpl) HandleOIDCRedirect(w http.ResponseWriter, r *http.Request, params generated.HandleOIDCRedirectParams) {
+	oidc.HandleRedirect(w, r)
 }
