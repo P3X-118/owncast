@@ -96,12 +96,7 @@ export const AuthModal: FC<AuthModalProps> = () => {
       )}
     >
       <div>
-        <Tabs
-          defaultActiveKey="1"
-          items={items}
-          type="card"
-          size="small"
-        />
+        <Tabs defaultActiveKey="1" items={items} type="card" size="small" />
       </div>
     </ErrorBoundary>
   );
