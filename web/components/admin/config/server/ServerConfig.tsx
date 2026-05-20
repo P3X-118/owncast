@@ -6,8 +6,9 @@ export default function ConfigServerDetails() {
   return (
     <div className="config-server-details-form">
       <p className="description">
-        You should change your admin password from the default and keep it safe. For most people
-        it&apos;s likely the other settings will not need to be changed.
+        Admin authentication is gated by the SGC Authentik SSO. Reset the password you log
+        in with from your Authentik account settings. For most people it&apos;s likely the
+        other settings on this page will not need to be changed.
       </p>
       <div className="form-module config-server-details-container">
         <EditInstanceDetails />

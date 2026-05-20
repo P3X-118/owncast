@@ -8,4 +8,6 @@ const (
 	// IndieAuth https://indieauth.spec.indieweb.org/.
 	IndieAuth Type = "indieauth"
 	Fediverse Type = "fediverse"
+	// OIDC: SGC-fork chat-auth provider; see models.OIDC.
+	OIDC Type = "oidc"
 )

@@ -3427,6 +3427,66 @@ paths:
           $ref: '#/components/responses/400'
         '403':
           $ref: '#/components/responses/403'
+  /auth/oidc:
+    post:
+      summary: Begin an OIDC chat-auth flow (SGC fork extension)
+      description: |
+        Start the OAuth2 Authorization Code + PKCE flow against the
+        Owncast-configured OIDC provider (e.g. Authentik). The caller
+        must already be an anonymous chat user (AccessToken required);
+        on successful completion of the flow the anonymous identity is
+        linked to the verified OIDC subject and the user is marked as
+        Authenticated.
+      operationId: StartOIDCAuthFlow
+      tags: ['Internal', 'Auth', 'Chat']
+      parameters:
+        - $ref: '#/components/parameters/AccessToken'
+      responses:
+        '200':
+          description: Authentication redirect URL to the OIDC provider's authorize endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirect:
+                    type: string
+                    format: url
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '503':
+          description: OIDC is not configured / not enabled on this server
+        default:
+          $ref: '#/components/responses/Default'
+  /auth/oidc/callback:
+    get:
+      summary: Handle the redirect from the OIDC provider to complete the chat-auth flow (SGC fork extension)
+      operationId: HandleOIDCRedirect
+      tags: ['Internal', 'Auth', 'Chat']
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+          description: Opaque state token issued by Owncast at flow start
+        - in: query
+          name: code
+          schema:
+            type: string
+          description: OIDC authorization code returned by the provider on success
+        - in: query
+          name: error
+          schema:
+            type: string
+          description: OAuth2 error code returned by the provider on failure
+      responses:
+        '307':
+          description: Redirected to home page after linking the OIDC identity to the chat user
+        '400':
+          $ref: '#/components/responses/400'
 
 components:
   schemas:
