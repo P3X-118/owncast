@@ -86,7 +86,7 @@ export const Main: FC = () => {
         <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon/favicon-16x16.png" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="authorization_endpoint" href="/api/auth/provider/indieauth" />
-        <meta name="msapplication-TileColor" content="#ffffff" />
+        <meta name="msapplication-TileColor" content="#15181c" />
         <meta name="msapplication-TileImage" content="/img/favicon/ms-icon-144x144.png" />
         <meta
           name="viewport"
