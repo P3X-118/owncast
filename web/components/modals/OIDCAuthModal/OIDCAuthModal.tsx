@@ -17,8 +17,7 @@ const LoginOutlined = dynamic(() => import('@ant-design/icons/LoginOutlined'), {
 // Optional label override so the SGC fork can show e.g. "Sign in with
 // Authentik" without hardcoding the provider name in tracked source.
 // Set NEXT_PUBLIC_OIDC_PROVIDER_LABEL at build time to override.
-const PROVIDER_LABEL =
-  process.env.NEXT_PUBLIC_OIDC_PROVIDER_LABEL || 'your account';
+const PROVIDER_LABEL = process.env.NEXT_PUBLIC_OIDC_PROVIDER_LABEL || 'your account';
 
 export type OIDCAuthModalProps = {
   authenticated: boolean;
@@ -36,13 +35,13 @@ export const OIDCAuthModal: FC<OIDCAuthModalProps> = ({
 
   const message = !authenticated ? (
     <span>
-      Link <span>{username}</span> to {PROVIDER_LABEL} so other chats recognise you across
-      sessions and devices. You&apos;ll be redirected to sign in.
+      Link <span>{username}</span> to {PROVIDER_LABEL} so other chats recognise you across sessions
+      and devices. You&apos;ll be redirected to sign in.
     </span>
   ) : (
     <span>
-      <b>You are already authenticated</b>. You can still link this chat user to{' '}
-      {PROVIDER_LABEL} or sign in as an existing one.
+      <b>You are already authenticated</b>. You can still link this chat user to {PROVIDER_LABEL} or
+      sign in as an existing one.
     </span>
   );
 
@@ -83,9 +82,7 @@ export const OIDCAuthModal: FC<OIDCAuthModalProps> = ({
     <Spin spinning={loading}>
       <Space direction="vertical">
         {message}
-        {errorMessage && (
-          <Alert message="Error" description={errorMessage} type="error" showIcon />
-        )}
+        {errorMessage && <Alert message="Error" description={errorMessage} type="error" showIcon />}
         <Button type="primary" icon={<LoginOutlined />} onClick={submitButtonPressed}>
           Sign in with {PROVIDER_LABEL}
         </Button>
@@ -93,9 +90,9 @@ export const OIDCAuthModal: FC<OIDCAuthModalProps> = ({
         <Collapse ghost>
           <Panel key="header" header={`Learn more about signing in with ${PROVIDER_LABEL}.`}>
             <p>
-              OpenID Connect lets you link this chat user to a verified account at the
-              identity provider this Owncast server trusts. After signing in there, you&apos;ll
-              be brought back here as the same chat user across browsers and devices.
+              OpenID Connect lets you link this chat user to a verified account at the identity
+              provider this Owncast server trusts. After signing in there, you&apos;ll be brought
+              back here as the same chat user across browsers and devices.
             </p>
             <p>
               <Link href="https://openid.net/connect/">Learn more about OpenID Connect</Link>.
@@ -103,8 +100,8 @@ export const OIDCAuthModal: FC<OIDCAuthModalProps> = ({
           </Panel>
         </Collapse>
         <div>
-          <strong>Note</strong>: Only the stable subject identifier from the provider is
-          stored. Email, name and other claims are not persisted.
+          <strong>Note</strong>: Only the stable subject identifier from the provider is stored.
+          Email, name and other claims are not persisted.
         </div>
       </Space>
     </Spin>

@@ -84,16 +84,11 @@ export default function EditInstanceDetails() {
         message="Admin login is managed by Authentik"
         description={
           <>
-            Admin authentication for this Owncast instance is gated by the
-            SGC Authentik SSO; the in-app admin password is set
-            automatically by the deployment and cannot be changed from
-            here. To reset the password you log in with, update it in
-            your Authentik account settings.{' '}
-            <a
-              href={EXTERNAL_AUTH_PASSWORD_RESET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            Admin authentication for this Owncast instance is gated by the SGC Authentik SSO; the
+            in-app admin password is set automatically by the deployment and cannot be changed from
+            here. To reset the password you log in with, update it in your Authentik account
+            settings.{' '}
+            <a href={EXTERNAL_AUTH_PASSWORD_RESET_URL} target="_blank" rel="noopener noreferrer">
               Open Authentik settings →
             </a>
           </>
