@@ -172,6 +172,73 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
+  // Disable Picture-in-Picture on the underlying <video> element so the
+  // browser-native PiP affordance (shown on hover in some browsers) is gone.
+  const disablePictureInPicture = player => {
+    try {
+      const videoEl = player.tech({ IWillNotUseThisInPlugins: true })?.el();
+      if (videoEl) {
+        videoEl.disablePictureInPicture = true;
+        videoEl.setAttribute('disablePictureInPicture', '');
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
+  // If unmuted autoplay was blocked by the browser, the player starts muted.
+  // Unmute on the first user gesture anywhere on the page so the radio gets
+  // sound with minimal friction (no need to hunt for the unmute button).
+  const setupSoundOnGesture = player => {
+    const events = ['pointerdown', 'keydown', 'touchend'];
+    const unmute = () => {
+      try {
+        if (player.muted()) {
+          player.muted(false);
+          if (player.volume() === 0) {
+            player.volume(getLocalStorage(PLAYER_VOLUME) || 0.7);
+          }
+          const p = player.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+      events.forEach(ev => document.removeEventListener(ev, unmute));
+    };
+    events.forEach(ev => document.addEventListener(ev, unmute, { once: true }));
+  };
+
+  // Wire up the Media Session API so audio keeps playing when the page is
+  // backgrounded or the phone is locked, and so OS lock-screen media controls
+  // appear and work.
+  const setupMediaSession = player => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
+      return;
+    }
+    try {
+      // eslint-disable-next-line no-undef
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || 'Live Stream',
+        artwork: [
+          { src: '/logo', sizes: '512x512' },
+          { src: '/logo', sizes: '256x256' },
+          { src: '/logo', sizes: '128x128' },
+        ],
+      });
+      navigator.mediaSession.setActionHandler('play', () => player.play());
+      navigator.mediaSession.setActionHandler('pause', () => player.pause());
+      // A live stream cannot seek, so clear those handlers to avoid showing
+      // non-functional scrubbing controls on the lock screen.
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+    } catch (e) {
+      console.warn(e);
+    }
+  };
+
   // Register keyboard shortcut for the space bar to toggle playback
   useHotkeys('space', e => {
     e.preventDefault();
@@ -196,7 +263,10 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   });
 
   const videoJsOptions = {
-    autoplay: false,
+    // 'any' = try to autoplay WITH sound; if the browser blocks unmuted
+    // autoplay, fall back to muted playback (then unmute on first gesture,
+    // see setupSoundOnGesture).
+    autoplay: 'any',
     controls: true,
     responsive: true,
     fluid: false,
@@ -206,6 +276,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     preload: 'auto',
     muted: initiallyMuted,
     controlBar: {
+      pictureInPictureToggle: false,
       progressControl: {
         seekBar: false,
       },
@@ -235,6 +306,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     playerRef.current = player;
     setSavedVolume();
     setupAirplay(player, videojs);
+    disablePictureInPicture(player);
+    setupMediaSession(player);
+    setupSoundOnGesture(player);
 
     // You can handle player events here, for example:
     player.on('waiting', () => {
@@ -250,12 +324,18 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       console.debug('player is playing');
       ping.start();
       setVideoPlaying(true);
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'playing';
+      }
     });
 
     player.on('pause', () => {
       console.debug('player is paused');
       ping.stop();
       setVideoPlaying(false);
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
     });
 
     player.on('ended', () => {
