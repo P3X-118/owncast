@@ -1,0 +1,13 @@
+# The Go binary embeds static/web/ (already bundled); the web/ source tree,
+# git history, and local tooling are not needed in the build context.
+.git
+.github
+.claude
+web/node_modules
+web/.next
+web/out
+web/storybook-static
+web/coverage
+test/automated/browser/node_modules
+test/automated/api/node_modules
+*.log
