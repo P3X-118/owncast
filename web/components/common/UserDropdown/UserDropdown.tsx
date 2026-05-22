@@ -11,6 +11,7 @@ import {
   chatStateAtom,
   currentUserAtom,
   appStateAtom,
+  accessTokenAtom,
 } from '../../stores/ClientConfigStore';
 import styles from './UserDropdown.module.scss';
 import { AppStateOptions } from '../../stores/application-state';
@@ -57,13 +58,6 @@ const NameChangeModal = dynamic(
   },
 );
 
-const AuthModal = dynamic(
-  () => import('../../modals/AuthModal/AuthModal').then(mod => mod.AuthModal),
-  {
-    ssr: false,
-  },
-);
-
 export type UserDropdownProps = {
   id: string;
   username?: string;
@@ -78,10 +72,31 @@ export const UserDropdown: FC<UserDropdownProps> = ({
   showToggleChatOption: showHideChatOption = true,
 }) => {
   const [showNameChangeModal, setShowNameChangeModal] = useState<boolean>(false);
-  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [chatState, setChatState] = useRecoilState(chatStateAtom);
   const [popupWindow, setPopupWindow] = useState<Window>(null);
   const appState = useRecoilValue<AppStateOptions>(appStateAtom);
+  const accessToken = useRecoilValue<string>(accessTokenAtom);
+
+  // SGC fork: the only login is Authentik SSO (OIDC). Clicking
+  // "Authenticate" starts the flow immediately and sends the user to the
+  // provider's login page -- no intermediate modal or provider picker.
+  const handleAuthenticate = async () => {
+    try {
+      const res = await fetch(`/api/auth/oidc?accessToken=${accessToken}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const content = await res.json();
+      if (content.redirect) {
+        window.location.href = content.redirect;
+      } else {
+        console.error('SSO login unavailable:', content.message || 'no redirect URL returned');
+      }
+    } catch (e) {
+      console.error('SSO login error:', e);
+    }
+  };
 
   const toggleChatVisibility = () => {
     // If we don't support the hide chat option then don't do anything.
@@ -157,7 +172,7 @@ export const UserDropdown: FC<UserDropdownProps> = ({
       key: 1,
       icon: <LockOutlined />,
       label: 'Authenticate',
-      onClick: () => setShowAuthModal(true),
+      onClick: handleAuthenticate,
     },
   ];
   if (canShowHideChat)
@@ -208,13 +223,6 @@ export const UserDropdown: FC<UserDropdownProps> = ({
           handleCancel={closeChangeNameModal}
         >
           <NameChangeModal closeModal={closeChangeNameModal} />
-        </Modal>
-        <Modal
-          title="Authenticate"
-          open={showAuthModal}
-          handleCancel={() => setShowAuthModal(false)}
-        >
-          <AuthModal />
         </Modal>
       </div>
     </ErrorBoundary>
