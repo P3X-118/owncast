@@ -16,10 +16,14 @@ type BeforeInstallPromptEvent = Event & {
 
 const isStandalone = (): boolean => {
   if (typeof window === 'undefined') return false;
-  const displayModeStandalone = window.matchMedia?.('(display-mode: standalone)').matches;
+  // The manifest requests display "fullscreen", which falls back through
+  // standalone/minimal-ui depending on platform support, so check them all.
+  const installedDisplayMode = ['fullscreen', 'standalone', 'minimal-ui'].some(
+    mode => window.matchMedia?.(`(display-mode: ${mode})`).matches,
+  );
   // iOS Safari exposes navigator.standalone when launched from the home screen.
   const iosStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone;
-  return Boolean(displayModeStandalone || iosStandalone);
+  return Boolean(installedDisplayMode || iosStandalone);
 };
 
 const isIos = (): boolean => {
