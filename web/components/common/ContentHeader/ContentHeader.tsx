@@ -3,6 +3,7 @@ import { FC } from 'react';
 import Linkify from 'react-linkify';
 import { Logo } from '../../ui/Logo/Logo';
 import { SocialLinks } from '../../ui/SocialLinks/SocialLinks';
+import { InstallButton } from '../../ui/InstallButton/InstallButton';
 import { SocialLink } from '../../../interfaces/social-link.model';
 import styles from './ContentHeader.module.scss';
 
@@ -21,7 +22,10 @@ export const ContentHeader: FC<ContentHeaderProps> = ({ name, summary, logo, tag
         <Logo src={logo} />
       </div>
       <div className={styles.titleSection}>
-        <h2 className={cn(styles.title, styles.row, 'header-title')}>{name}</h2>
+        <div className={cn(styles.titleRow, styles.row)}>
+          <h2 className={cn(styles.title, 'header-title')}>{name}</h2>
+          <InstallButton />
+        </div>
         <h3 className={cn(styles.subtitle, styles.row, 'header-subtitle')}>
           <Linkify>{summary}</Linkify>
         </h3>

@@ -50,6 +50,17 @@ $vert-spacing: 0.75rem;
     margin-left: 0;
   }
 
+  .titleRow {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+
+    @include screen(tablet) {
+      justify-content: center;
+    }
+  }
+
   .title {
     font-family: var(--theme-text-display-font-family);
     font-size: 1.8rem;
