@@ -203,6 +203,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   // Unmute on the first user gesture anywhere on the page so the radio gets
   // sound with minimal friction (no need to hunt for the unmute button).
   const setupSoundOnGesture = player => {
+    // On iOS the video is kept muted (picture only) and the companion <audio>
+    // element carries all sound; see setupBackgroundAudio. Don't unmute the
+    // video there or it would echo the companion.
+    if (isIosDevice()) {
+      return;
+    }
     const events = ['pointerdown', 'keydown', 'touchend'];
     const unmute = () => {
       try {
@@ -253,17 +259,16 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   };
 
   // iOS-only: keep the radio audible after the screen locks / the app is
-  // backgrounded. iOS suspends the inline <video>, so the VIDEO is the audio
-  // source only in the foreground; a hidden companion <audio> element (same
-  // HLS source) takes over for the background.
+  // backgrounded, AND keep working lock-screen controls. iOS suspends an
+  // inline <video> in the background, but it keeps an <audio> element that is
+  // already actively playing alive (along with its Media Session controls).
+  // So on iOS the video is kept muted (picture only) and a hidden companion
+  // <audio> element is the sole, CONTINUOUS audio source.
   //
-  // The companion is OFF (paused + muted) whenever the video is the audible
-  // source, so the normal mute/volume controls fully govern foreground sound
-  // and there is never a doubled/echoed source. It is started only when the
-  // page is hidden AND the video had sound -- if the video was muted, the
-  // background stays silent too. iOS will not START playback in the
-  // background without prior user activation, so we warm the element on the
-  // first gesture.
+  // A gated "start the companion only once the page is hidden" handoff was
+  // tried and reverted: iOS refuses to START playback while backgrounded, so
+  // it produced no background audio AND no lock-screen controls. The
+  // companion must already be playing before the screen locks.
   const setupBackgroundAudio = player => {
     if (!isIosDevice()) {
       return;
@@ -273,76 +278,60 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       return;
     }
     try {
+      // Video is picture-only on iOS; the companion carries all sound, so the
+      // muted video can be suspended on lock without going silent. (iOS
+      // ignores media-element volume -- only `muted` matters.)
+      player.muted(true);
       audioEl.src = source;
       audioEl.preload = 'auto';
-      audioEl.muted = true;
+      audioEl.muted = false;
     } catch (e) {
       console.warn(e);
     }
 
-    // Warm the companion under the first user gesture (play briefly, then
-    // pause) so it carries the user activation needed to resume later while
-    // the page is backgrounded.
+    // Start the audible companion on the first user gesture (iOS blocks
+    // autoplay with sound).
     const events = ['pointerdown', 'keydown', 'touchend'];
-    const warm = () => {
+    const start = () => {
       try {
         const p = audioEl.play();
-        if (p && p.then) {
-          p.then(() => audioEl.pause()).catch(() => {});
-        } else {
-          audioEl.pause();
-        }
+        if (p && p.catch) p.catch(() => {});
       } catch (e) {
         console.warn(e);
       }
-      events.forEach(ev => document.removeEventListener(ev, warm));
+      events.forEach(ev => document.removeEventListener(ev, start));
     };
-    events.forEach(ev => document.addEventListener(ev, warm, { once: true }));
+    events.forEach(ev => document.addEventListener(ev, start, { once: true }));
 
-    // True only when the video is actively producing sound right now.
-    const videoHasSound = () => {
+    // Mirror the on-screen play/pause button to the companion so pausing the
+    // video also stops the sound. Ignore the 'pause' iOS fires when it
+    // suspends the muted video on background, so the companion keeps playing
+    // while locked.
+    player.on('pause', () => {
+      if (!document.hidden) {
+        try {
+          audioEl.pause();
+        } catch {
+          /* noop */
+        }
+      }
+    });
+    player.on('playing', () => {
       try {
-        return !player.paused() && !player.muted() && player.volume() > 0;
+        const p = audioEl.play();
+        if (p && p.catch) p.catch(() => {});
       } catch {
-        return false;
+        /* noop */
       }
-    };
+    });
 
-    const onVisibility = () => {
-      try {
-        if (document.hidden) {
-          // Hand off to the companion only if the video was actually playing
-          // sound; a muted video stays silent in the background.
-          if (videoHasSound()) {
-            audioEl.muted = false;
-            const p = audioEl.play();
-            if (p && p.catch) p.catch(() => {});
-          }
-        } else {
-          // Back in the foreground: silence the companion and let the video
-          // be the audio source again.
-          audioEl.pause();
-          audioEl.muted = true;
-          const p = player.play();
-          if (p && p.catch) p.catch(() => {});
-        }
-      } catch (e) {
-        console.warn(e);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    // Route lock-screen / Control Center controls to whichever element owns
-    // playback at the time (companion while hidden, video while visible).
+    // Lock-screen / Control Center controls drive both elements.
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.setActionHandler('play', () => {
-          if (document.hidden) {
-            audioEl.muted = false;
-            audioEl.play();
-          } else {
-            player.play();
-          }
+          const p = audioEl.play();
+          if (p && p.catch) p.catch(() => {});
+          player.play();
         });
         navigator.mediaSession.setActionHandler('pause', () => {
           audioEl.pause();
@@ -354,8 +343,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
 
     player.on('dispose', () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      events.forEach(ev => document.removeEventListener(ev, warm));
+      events.forEach(ev => document.removeEventListener(ev, start));
       try {
         audioEl.pause();
       } catch {
@@ -435,6 +423,17 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     setupMediaSession(player);
     setupSoundOnGesture(player);
     setupBackgroundAudio(player);
+
+    // On iOS the companion <audio> is the audio source and the video is kept
+    // muted; remove the video's volume/mute control so it can't be unmuted
+    // into an echo. (iOS handles loudness via the hardware buttons anyway.)
+    if (isIosDevice()) {
+      try {
+        player.controlBar.removeChild('volumePanel');
+      } catch (e) {
+        console.warn(e);
+      }
+    }
 
     // You can handle player events here, for example:
     player.on('waiting', () => {
