@@ -23,6 +23,18 @@ let playbackMetrics = null;
 let latencyCompensator = null;
 let latencyCompensatorEnabled = false;
 
+// iOS suspends an inline <video> when the page is backgrounded or the phone
+// is locked, so its audio stops. An <audio> element, by contrast, keeps
+// playing in the background with lock-screen controls. We only need this
+// companion-audio handoff on iOS; every other platform keeps the video's
+// audio alive on its own.
+const isIosDevice = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent;
+  const iPadOS = /Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+  return /iphone|ipad|ipod/i.test(ua) || iPadOS;
+};
+
 export type OwncastPlayerProps = {
   source: string;
   online: boolean;
@@ -40,6 +52,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
 }) => {
   const VideoSettingsService = useContext(VideoSettingsServiceContext);
   const playerRef = React.useRef(null);
+  const audioRef = React.useRef<HTMLAudioElement>(null);
   const [videoPlaying, setVideoPlaying] = useRecoilState<boolean>(isVideoPlayingAtom);
   const clockSkew = useRecoilValue<Number>(clockSkewAtom);
 
@@ -190,6 +203,12 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   // Unmute on the first user gesture anywhere on the page so the radio gets
   // sound with minimal friction (no need to hunt for the unmute button).
   const setupSoundOnGesture = player => {
+    // On iOS the companion <audio> element is the audible source (the video
+    // stays muted so it can be suspended in the background without silencing
+    // the radio); see setupBackgroundAudio. Don't unmute the video there.
+    if (isIosDevice()) {
+      return;
+    }
     const events = ['pointerdown', 'keydown', 'touchend'];
     const unmute = () => {
       try {
@@ -237,6 +256,97 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     } catch (e) {
       console.warn(e);
     }
+  };
+
+  // iOS-only: keep the radio audible when the page is backgrounded or the
+  // phone is locked. iOS suspends an inline <video> in the background, but an
+  // <audio> element that is actively producing sound keeps its background
+  // audio session alive. So on iOS we make a hidden companion <audio> element
+  // (same HLS source) the AUDIBLE source and keep the video muted -- the
+  // muted video can be suspended in the background without silencing anything.
+  //
+  // A muted element does NOT hold a background session, which is why warming
+  // it muted and unmuting on background dropped audio with an initial pause.
+  // Here the companion plays UNMUTED from the first user gesture (iOS will not
+  // start playback without a gesture), so the session is continuous across
+  // the background transition with no handoff to drop.
+  const setupBackgroundAudio = player => {
+    if (!isIosDevice()) {
+      return;
+    }
+    const audioEl = audioRef.current;
+    if (!audioEl) {
+      return;
+    }
+    // Keep the video silent so it never echoes the companion audio. (iOS
+    // ignores media-element volume -- only `muted` matters -- so the saved
+    // volume is irrelevant here.)
+    try {
+      player.muted(true);
+      audioEl.src = source;
+      audioEl.preload = 'auto';
+      audioEl.muted = false;
+    } catch (e) {
+      console.warn(e);
+    }
+
+    // Start the audible companion on the first user gesture.
+    const events = ['pointerdown', 'keydown', 'touchend'];
+    const start = () => {
+      try {
+        const p = audioEl.play();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {
+        console.warn(e);
+      }
+      events.forEach(ev => document.removeEventListener(ev, start));
+    };
+    events.forEach(ev => document.addEventListener(ev, start, { once: true }));
+
+    // Route the OS lock-screen / Control Center controls to the companion
+    // audio (the element that owns the active session on iOS).
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler('play', () => {
+          audioEl.play();
+          player.play();
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+          audioEl.pause();
+          player.pause();
+        });
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    // When returning to the foreground, nudge the (muted) video picture back
+    // to life and make sure audio is still going. Nothing on hide -- the
+    // audio element keeps playing on its own.
+    const onVisibility = () => {
+      if (document.hidden) {
+        return;
+      }
+      try {
+        const pa = audioEl.play();
+        if (pa && pa.catch) pa.catch(() => {});
+        const pv = player.play();
+        if (pv && pv.catch) pv.catch(() => {});
+      } catch (e) {
+        console.warn(e);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    player.on('dispose', () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      events.forEach(ev => document.removeEventListener(ev, start));
+      try {
+        audioEl.pause();
+      } catch {
+        /* noop */
+      }
+    });
   };
 
   // Register keyboard shortcut for the space bar to toggle playback
@@ -309,6 +419,7 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     disablePictureInPicture(player);
     setupMediaSession(player);
     setupSoundOnGesture(player);
+    setupBackgroundAudio(player);
 
     // You can handle player events here, for example:
     player.on('waiting', () => {
@@ -390,6 +501,11 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
             <VideoPoster online={online} initialSrc="/thumbnail.jpg" src="/thumbnail.jpg" />
           )}
         </div>
+        {/* iOS-only companion audio for lock-screen / background playback.
+            Inert (no src) on every other platform; see setupBackgroundAudio.
+            A live radio stream carries no caption track. */}
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        {online && <audio ref={audioRef} aria-hidden="true" style={{ display: 'none' }} />}
       </div>
     </ErrorBoundary>
   );
