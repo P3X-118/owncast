@@ -203,12 +203,6 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
   // Unmute on the first user gesture anywhere on the page so the radio gets
   // sound with minimal friction (no need to hunt for the unmute button).
   const setupSoundOnGesture = player => {
-    // On iOS the companion <audio> element is the audible source (the video
-    // stays muted so it can be suspended in the background without silencing
-    // the radio); see setupBackgroundAudio. Don't unmute the video there.
-    if (isIosDevice()) {
-      return;
-    }
     const events = ['pointerdown', 'keydown', 'touchend'];
     const unmute = () => {
       try {
@@ -258,18 +252,18 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     }
   };
 
-  // iOS-only: keep the radio audible when the page is backgrounded or the
-  // phone is locked. iOS suspends an inline <video> in the background, but an
-  // <audio> element that is actively producing sound keeps its background
-  // audio session alive. So on iOS we make a hidden companion <audio> element
-  // (same HLS source) the AUDIBLE source and keep the video muted -- the
-  // muted video can be suspended in the background without silencing anything.
+  // iOS-only: keep the radio audible after the screen locks / the app is
+  // backgrounded. iOS suspends the inline <video>, so the VIDEO is the audio
+  // source only in the foreground; a hidden companion <audio> element (same
+  // HLS source) takes over for the background.
   //
-  // A muted element does NOT hold a background session, which is why warming
-  // it muted and unmuting on background dropped audio with an initial pause.
-  // Here the companion plays UNMUTED from the first user gesture (iOS will not
-  // start playback without a gesture), so the session is continuous across
-  // the background transition with no handoff to drop.
+  // The companion is OFF (paused + muted) whenever the video is the audible
+  // source, so the normal mute/volume controls fully govern foreground sound
+  // and there is never a doubled/echoed source. It is started only when the
+  // page is hidden AND the video had sound -- if the video was muted, the
+  // background stays silent too. iOS will not START playback in the
+  // background without prior user activation, so we warm the element on the
+  // first gesture.
   const setupBackgroundAudio = player => {
     if (!isIosDevice()) {
       return;
@@ -278,38 +272,77 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
     if (!audioEl) {
       return;
     }
-    // Keep the video silent so it never echoes the companion audio. (iOS
-    // ignores media-element volume -- only `muted` matters -- so the saved
-    // volume is irrelevant here.)
     try {
-      player.muted(true);
       audioEl.src = source;
       audioEl.preload = 'auto';
-      audioEl.muted = false;
+      audioEl.muted = true;
     } catch (e) {
       console.warn(e);
     }
 
-    // Start the audible companion on the first user gesture.
+    // Warm the companion under the first user gesture (play briefly, then
+    // pause) so it carries the user activation needed to resume later while
+    // the page is backgrounded.
     const events = ['pointerdown', 'keydown', 'touchend'];
-    const start = () => {
+    const warm = () => {
       try {
         const p = audioEl.play();
-        if (p && p.catch) p.catch(() => {});
+        if (p && p.then) {
+          p.then(() => audioEl.pause()).catch(() => {});
+        } else {
+          audioEl.pause();
+        }
       } catch (e) {
         console.warn(e);
       }
-      events.forEach(ev => document.removeEventListener(ev, start));
+      events.forEach(ev => document.removeEventListener(ev, warm));
     };
-    events.forEach(ev => document.addEventListener(ev, start, { once: true }));
+    events.forEach(ev => document.addEventListener(ev, warm, { once: true }));
 
-    // Route the OS lock-screen / Control Center controls to the companion
-    // audio (the element that owns the active session on iOS).
+    // True only when the video is actively producing sound right now.
+    const videoHasSound = () => {
+      try {
+        return !player.paused() && !player.muted() && player.volume() > 0;
+      } catch {
+        return false;
+      }
+    };
+
+    const onVisibility = () => {
+      try {
+        if (document.hidden) {
+          // Hand off to the companion only if the video was actually playing
+          // sound; a muted video stays silent in the background.
+          if (videoHasSound()) {
+            audioEl.muted = false;
+            const p = audioEl.play();
+            if (p && p.catch) p.catch(() => {});
+          }
+        } else {
+          // Back in the foreground: silence the companion and let the video
+          // be the audio source again.
+          audioEl.pause();
+          audioEl.muted = true;
+          const p = player.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    // Route lock-screen / Control Center controls to whichever element owns
+    // playback at the time (companion while hidden, video while visible).
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.setActionHandler('play', () => {
-          audioEl.play();
-          player.play();
+          if (document.hidden) {
+            audioEl.muted = false;
+            audioEl.play();
+          } else {
+            player.play();
+          }
         });
         navigator.mediaSession.setActionHandler('pause', () => {
           audioEl.pause();
@@ -320,27 +353,9 @@ export const OwncastPlayer: FC<OwncastPlayerProps> = ({
       }
     }
 
-    // When returning to the foreground, nudge the (muted) video picture back
-    // to life and make sure audio is still going. Nothing on hide -- the
-    // audio element keeps playing on its own.
-    const onVisibility = () => {
-      if (document.hidden) {
-        return;
-      }
-      try {
-        const pa = audioEl.play();
-        if (pa && pa.catch) pa.catch(() => {});
-        const pv = player.play();
-        if (pv && pv.catch) pv.catch(() => {});
-      } catch (e) {
-        console.warn(e);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
     player.on('dispose', () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      events.forEach(ev => document.removeEventListener(ev, start));
+      events.forEach(ev => document.removeEventListener(ev, warm));
       try {
         audioEl.pause();
       } catch {
