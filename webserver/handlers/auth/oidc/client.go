@@ -77,6 +77,33 @@ func StartAuthFlow(u models.User, w http.ResponseWriter, r *http.Request) {
 	webutils.WriteResponse(w, response{Redirect: redirect.String()})
 }
 
+// HandleLogout returns the OIDC provider's end-session URL so the front
+// end can navigate the browser there and end the user's SSO session at
+// the provider. The outer dispatcher wraps this in the user access-token
+// middleware, so only a real chat user can request a logout URL. The
+// front end clears the local chat access token alongside this so the user
+// returns as a fresh anonymous identity.
+func HandleLogout(u models.User, w http.ResponseWriter, r *http.Request) {
+	if !ao.IsEnabled() {
+		webutils.WriteSimpleResponse(w, false, "OIDC chat-auth is not enabled on this server")
+		return
+	}
+
+	accessToken := r.URL.Query().Get("accessToken")
+
+	redirect, err := ao.LogoutURL(accessToken)
+	if err != nil {
+		log.Debugln("OIDC logout error:", err)
+		webutils.WriteSimpleResponse(w, false, err.Error())
+		return
+	}
+
+	type response struct {
+		Redirect string `json:"redirect"`
+	}
+	webutils.WriteResponse(w, response{Redirect: redirect.String()})
+}
+
 // HandleRedirect completes a flow started by StartAuthFlow. The OIDC
 // provider sends the user back here with `state` and `code` (or `error`)
 // in the query string. On success we link the verified identity to the

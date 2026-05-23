@@ -41,3 +41,7 @@ func (*ServerInterfaceImpl) StartOIDCAuthFlow(w http.ResponseWriter, r *http.Req
 func (*ServerInterfaceImpl) HandleOIDCRedirect(w http.ResponseWriter, r *http.Request, params generated.HandleOIDCRedirectParams) {
 	oidc.HandleRedirect(w, r)
 }
+
+func (*ServerInterfaceImpl) HandleOIDCLogout(w http.ResponseWriter, r *http.Request, params generated.HandleOIDCLogoutParams) {
+	middleware.RequireUserAccessToken(oidc.HandleLogout)(w, r)
+}

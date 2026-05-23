@@ -52,6 +52,12 @@ const (
 
 	// Cap to make brute force / DoS less attractive.
 	maxPendingRequests = 1024
+
+	// How long we keep a user's id_token around to use as the
+	// id_token_hint for RP-initiated logout. Long enough to cover a
+	// normal viewing session; a logout after this falls back to a
+	// hint-less end_session call (provider may show its own page).
+	idTokenHintTTL = time.Hour * 12
 )
 
 var (
@@ -63,7 +69,19 @@ var (
 	providerLock sync.Mutex
 	cachedKey    string
 	cachedCfg    *providerConfig
+
+	// Raw id_tokens kept (in memory only) keyed by the chat access token
+	// that owns them, so logout can pass id_token_hint to the provider's
+	// end_session endpoint. Lost on restart -> logout degrades to a
+	// hint-less call. Guarded by idTokenHintsLock.
+	idTokenHints     = make(map[string]idTokenHint)
+	idTokenHintsLock sync.Mutex
 )
+
+type idTokenHint struct {
+	raw       string
+	timestamp time.Time
+}
 
 type providerConfig struct {
 	provider     *gooidc.Provider
@@ -108,7 +126,44 @@ func setupExpiredRequestPruner() {
 			}
 		}
 		pendingLock.Unlock()
+
+		idTokenHintsLock.Lock()
+		for k, v := range idTokenHints {
+			if time.Since(v.timestamp) > idTokenHintTTL {
+				delete(idTokenHints, k)
+			}
+		}
+		idTokenHintsLock.Unlock()
 	}
+}
+
+// storeIDTokenHint records a verified id_token against the chat access
+// token that owns it, for later use as an RP-initiated-logout hint.
+func storeIDTokenHint(accessToken, rawIDToken string) {
+	if accessToken == "" || rawIDToken == "" {
+		return
+	}
+	idTokenHintsLock.Lock()
+	defer idTokenHintsLock.Unlock()
+	// Bound memory: if we somehow blow past the cap, drop everything
+	// rather than grow unbounded. Worst case logout loses its hint.
+	if len(idTokenHints) >= maxPendingRequests {
+		idTokenHints = make(map[string]idTokenHint)
+	}
+	idTokenHints[accessToken] = idTokenHint{raw: rawIDToken, timestamp: time.Now()}
+}
+
+// takeIDTokenHint returns and forgets the id_token cached for the given
+// access token, or "" if none is held.
+func takeIDTokenHint(accessToken string) string {
+	idTokenHintsLock.Lock()
+	defer idTokenHintsLock.Unlock()
+	h, ok := idTokenHints[accessToken]
+	if !ok {
+		return ""
+	}
+	delete(idTokenHints, accessToken)
+	return h.raw
 }
 
 // StartAuthFlow generates a Request, stashes it, and returns the URL the
@@ -227,6 +282,10 @@ func HandleCallback(ctx context.Context, state, code string) (*Request, *Identit
 		return nil, nil, errors.New("OIDC id_token nonce mismatch")
 	}
 
+	// Keep the verified id_token so a later logout can present it as the
+	// id_token_hint required for a clean RP-initiated logout + redirect.
+	storeIDTokenHint(req.CurrentAccessToken, rawIDToken)
+
 	var claims IdentityClaims
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, nil, fmt.Errorf("unable to decode OIDC id_token claims: %w", err)
@@ -237,6 +296,51 @@ func HandleCallback(ctx context.Context, state, code string) (*Request, *Identit
 	claims.Issuer = idToken.Issuer
 
 	return req, &claims, nil
+}
+
+// LogoutURL builds the OIDC provider's RP-initiated logout (end_session)
+// URL for the given chat access token. The returned URL ends the user's
+// SSO session at the provider (e.g. Authentik) and, when we still hold
+// the user's id_token, includes id_token_hint + post_logout_redirect_uri
+// so the provider skips its confirmation page and returns the browser to
+// the Owncast site. The caller (front end) is responsible for also
+// clearing the local chat identity so the user comes back anonymous.
+func LogoutURL(accessToken string) (*url.URL, error) {
+	if !IsEnabled() {
+		return nil, errors.New("OIDC chat-auth is not enabled on this server")
+	}
+
+	cfg, err := getProvider(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("OIDC provider is misconfigured: %w", err)
+	}
+
+	// end_session_endpoint is an OIDC discovery field not exposed by the
+	// go-oidc Provider struct; read it from the raw discovery document.
+	var meta struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	if err := cfg.provider.Claims(&meta); err != nil || meta.EndSessionEndpoint == "" {
+		return nil, errors.New("OIDC provider does not advertise an end_session_endpoint")
+	}
+	endSession, err := url.Parse(meta.EndSessionEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse end_session_endpoint: %w", err)
+	}
+
+	q := endSession.Query()
+	if clientID := os.Getenv("OWNCAST_OIDC_CLIENT_ID"); clientID != "" {
+		q.Set("client_id", clientID)
+	}
+	if serverURL := configrepository.Get().GetServerURL(); serverURL != "" {
+		q.Set("post_logout_redirect_uri", serverURL)
+	}
+	if hint := takeIDTokenHint(accessToken); hint != "" {
+		q.Set("id_token_hint", hint)
+	}
+	endSession.RawQuery = q.Encode()
+
+	return endSession, nil
 }
 
 // getProvider returns a cached *providerConfig, re-resolving discovery
