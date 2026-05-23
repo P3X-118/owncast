@@ -19,9 +19,12 @@
     padding: 0.3rem;
     transition: box-shadow 90ms ease-in-out;
 
+    // Keep the field's dark background on focus -- the default theme's
+    // form-field-background is white, which made light text invisible while
+    // typing. Show focus with a ring instead of a background-color flip.
     &:focus-within {
-      background-color: var(--theme-color-components-form-field-background);
-      box-shadow: inset 0 0 2px 2px var(--theme-color-palette-3);
+      background-color: var(--theme-color-palette-3);
+      box-shadow: inset 0 0 0 1px var(--theme-color-components-form-field-border);
     }
 
     // Size of custom emoji.

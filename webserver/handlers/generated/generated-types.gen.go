@@ -819,6 +819,11 @@ type HandleOIDCRedirectParams struct {
 	Error *string `form:"error,omitempty" json:"error,omitempty"`
 }
 
+// HandleOIDCLogoutParams defines parameters for HandleOIDCLogout.
+type HandleOIDCLogoutParams struct {
+	AccessToken AccessToken `form:"accessToken" json:"accessToken"`
+}
+
 // HandleIndieAuthEndpointGetParams defines parameters for HandleIndieAuthEndpointGet.
 type HandleIndieAuthEndpointGetParams struct {
 	ClientId      IndieAuthClientId      `form:"client_id" json:"client_id"`

@@ -3487,6 +3487,38 @@ paths:
           description: Redirected to home page after linking the OIDC identity to the chat user
         '400':
           $ref: '#/components/responses/400'
+  /auth/oidc/logout:
+    post:
+      summary: Get the OIDC provider logout (end-session) URL for the current chat user (SGC fork extension)
+      description: |
+        Returns the configured OIDC provider's RP-initiated logout
+        (end_session) URL. The caller (an authenticated chat user) is
+        expected to clear its local access token and navigate the browser
+        to the returned URL, which ends the user's SSO session at the
+        provider and returns them to the Owncast site as an anonymous user.
+      operationId: HandleOIDCLogout
+      tags: ['Internal', 'Auth', 'Chat']
+      parameters:
+        - $ref: '#/components/parameters/AccessToken'
+      responses:
+        '200':
+          description: Logout redirect URL to the OIDC provider's end-session endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirect:
+                    type: string
+                    format: url
+        '400':
+          $ref: '#/components/responses/400'
+        '401':
+          $ref: '#/components/responses/401'
+        '503':
+          description: OIDC is not configured / not enabled on this server
+        default:
+          $ref: '#/components/responses/Default'
 
 components:
   schemas:

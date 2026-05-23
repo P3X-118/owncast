@@ -11,10 +11,14 @@ import {
   chatStateAtom,
   currentUserAtom,
   appStateAtom,
+  accessTokenAtom,
+  chatAuthenticatedAtom,
+  ACCESS_TOKEN_KEY,
 } from '../../stores/ClientConfigStore';
 import styles from './UserDropdown.module.scss';
 import { AppStateOptions } from '../../stores/application-state';
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
+import { setLocalStorage } from '../../../utils/localStorage';
 
 // Lazy loaded components
 
@@ -27,6 +31,10 @@ const EditOutlined = dynamic(() => import('@ant-design/icons/EditOutlined'), {
 });
 
 const LockOutlined = dynamic(() => import('@ant-design/icons/LockOutlined'), {
+  ssr: false,
+});
+
+const LogoutOutlined = dynamic(() => import('@ant-design/icons/LogoutOutlined'), {
   ssr: false,
 });
 
@@ -57,13 +65,6 @@ const NameChangeModal = dynamic(
   },
 );
 
-const AuthModal = dynamic(
-  () => import('../../modals/AuthModal/AuthModal').then(mod => mod.AuthModal),
-  {
-    ssr: false,
-  },
-);
-
 export type UserDropdownProps = {
   id: string;
   username?: string;
@@ -78,10 +79,58 @@ export const UserDropdown: FC<UserDropdownProps> = ({
   showToggleChatOption: showHideChatOption = true,
 }) => {
   const [showNameChangeModal, setShowNameChangeModal] = useState<boolean>(false);
-  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [chatState, setChatState] = useRecoilState(chatStateAtom);
   const [popupWindow, setPopupWindow] = useState<Window>(null);
   const appState = useRecoilValue<AppStateOptions>(appStateAtom);
+  const accessToken = useRecoilValue<string>(accessTokenAtom);
+  const chatAuthenticated = useRecoilValue<boolean>(chatAuthenticatedAtom);
+
+  // SGC fork: the only login is Authentik SSO (OIDC). Clicking
+  // "Authenticate" starts the flow immediately and sends the user to the
+  // provider's login page -- no intermediate modal or provider picker.
+  const handleAuthenticate = async () => {
+    try {
+      const res = await fetch(`/api/auth/oidc?accessToken=${accessToken}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const content = await res.json();
+      if (content.redirect) {
+        window.location.href = content.redirect;
+      } else {
+        console.error('SSO login unavailable:', content.message || 'no redirect URL returned');
+      }
+    } catch (e) {
+      console.error('SSO login error:', e);
+    }
+  };
+
+  // SGC fork: once a user is authenticated via Authentik there is nothing
+  // to re-authenticate and their name is owned by Authentik, so the only
+  // account action is "Logout". This ends their SSO session at the
+  // provider and clears the local chat identity so they return anonymous.
+  const handleLogout = async () => {
+    try {
+      const res = await fetch(`/api/auth/oidc/logout?accessToken=${accessToken}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const content = await res.json();
+      // Drop the local chat identity first so that, however the provider
+      // logout resolves, the next page load registers a fresh anonymous user.
+      setLocalStorage(ACCESS_TOKEN_KEY, '');
+      if (content.redirect) {
+        window.location.href = content.redirect;
+      } else {
+        // No provider end-session URL available; just reload as anonymous.
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error('SSO logout error:', e);
+    }
+  };
 
   const toggleChatVisibility = () => {
     // If we don't support the hide chat option then don't do anything.
@@ -146,20 +195,32 @@ export const UserDropdown: FC<UserDropdownProps> = ({
   const { displayName } = currentUser;
   const username = defaultUsername || displayName;
 
-  const items: MenuProps['items'] = [
-    {
-      key: 0,
-      icon: <EditOutlined />,
-      label: 'Change name',
-      onClick: handleChangeName,
-    },
-    {
-      key: 1,
-      icon: <LockOutlined />,
-      label: 'Authenticate',
-      onClick: () => setShowAuthModal(true),
-    },
-  ];
+  // When the user is already authenticated via Authentik, the only
+  // account action is to log out -- changing name (Authentik owns it) and
+  // re-authenticating make no sense. Otherwise offer name change + SSO.
+  const items: MenuProps['items'] = chatAuthenticated
+    ? [
+        {
+          key: 1,
+          icon: <LogoutOutlined />,
+          label: 'Logout',
+          onClick: handleLogout,
+        },
+      ]
+    : [
+        {
+          key: 0,
+          icon: <EditOutlined />,
+          label: 'Change name',
+          onClick: handleChangeName,
+        },
+        {
+          key: 1,
+          icon: <LockOutlined />,
+          label: 'Authenticate',
+          onClick: handleAuthenticate,
+        },
+      ];
   if (canShowHideChat)
     items.push({
       key: 3,
@@ -208,13 +269,6 @@ export const UserDropdown: FC<UserDropdownProps> = ({
           handleCancel={closeChangeNameModal}
         >
           <NameChangeModal closeModal={closeChangeNameModal} />
-        </Modal>
-        <Modal
-          title="Authenticate"
-          open={showAuthModal}
-          handleCancel={() => setShowAuthModal(false)}
-        >
-          <AuthModal />
         </Modal>
       </div>
     </ErrorBoundary>

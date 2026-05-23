@@ -539,6 +539,9 @@ type ServerInterface interface {
 	// Handle the redirect from the OIDC provider to complete the chat-auth flow (SGC fork extension)
 	// (GET /auth/oidc/callback)
 	HandleOIDCRedirect(w http.ResponseWriter, r *http.Request, params HandleOIDCRedirectParams)
+	// Get the OIDC provider logout (end-session) URL for the current chat user (SGC fork extension)
+	// (POST /auth/oidc/logout)
+	HandleOIDCLogout(w http.ResponseWriter, r *http.Request, params HandleOIDCLogoutParams)
 	// Handles the IndieAuth auth endpoint
 	// (GET /auth/provider/indieauth)
 	HandleIndieAuthEndpointGet(w http.ResponseWriter, r *http.Request, params HandleIndieAuthEndpointGetParams)
@@ -1627,6 +1630,12 @@ func (_ Unimplemented) StartOIDCAuthFlow(w http.ResponseWriter, r *http.Request,
 // Handle the redirect from the OIDC provider to complete the chat-auth flow (SGC fork extension)
 // (GET /auth/oidc/callback)
 func (_ Unimplemented) HandleOIDCRedirect(w http.ResponseWriter, r *http.Request, params HandleOIDCRedirectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the OIDC provider logout (end-session) URL for the current chat user (SGC fork extension)
+// (POST /auth/oidc/logout)
+func (_ Unimplemented) HandleOIDCLogout(w http.ResponseWriter, r *http.Request, params HandleOIDCLogoutParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4976,6 +4985,40 @@ func (siw *ServerInterfaceWrapper) HandleOIDCRedirect(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// HandleOIDCLogout operation middleware
+func (siw *ServerInterfaceWrapper) HandleOIDCLogout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params HandleOIDCLogoutParams
+
+	// ------------- Required query parameter "accessToken" -------------
+
+	if paramValue := r.URL.Query().Get("accessToken"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "accessToken"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "accessToken", r.URL.Query(), &params.AccessToken)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "accessToken", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HandleOIDCLogout(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // HandleIndieAuthEndpointGet operation middleware
 func (siw *ServerInterfaceWrapper) HandleIndieAuthEndpointGet(w http.ResponseWriter, r *http.Request) {
 
@@ -6485,6 +6528,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/oidc/callback", wrapper.HandleOIDCRedirect)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/oidc/logout", wrapper.HandleOIDCLogout)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/provider/indieauth", wrapper.HandleIndieAuthEndpointGet)

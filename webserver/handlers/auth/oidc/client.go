@@ -8,14 +8,49 @@ package oidc
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	ao "github.com/owncast/owncast/auth/oidc"
-	"github.com/owncast/owncast/core/chat"
+	"github.com/owncast/owncast/config"
 	"github.com/owncast/owncast/models"
 	"github.com/owncast/owncast/persistence/userrepository"
+	"github.com/owncast/owncast/utils"
 	webutils "github.com/owncast/owncast/webserver/utils"
 	log "github.com/sirupsen/logrus"
 )
+
+// applyAuthentikDisplayName renames the chat user to their verified
+// Authentik display name. If that name is empty/blocked it keeps the
+// current name; if it is already taken by another chat user it appends a
+// generated "hacker name" (the same word list Owncast uses for anonymous
+// users) and tries once more. Best-effort: never fails the auth flow.
+func applyAuthentikDisplayName(repo userrepository.UserRepository, userID, currentName, desiredName string) {
+	desired := utils.MakeSafeStringOfLength(strings.TrimSpace(desiredName), config.MaxChatDisplayNameLength)
+	if desired == "" || desired == currentName {
+		return
+	}
+
+	if available, err := repo.IsDisplayNameAvailable(desired); err == nil && available {
+		if err := repo.ChangeUsername(userID, desired); err != nil {
+			log.Errorln("oidc: unable to set display name:", err)
+		}
+		return
+	}
+
+	// Taken (or lookup failed): append a hacker name and retry once.
+	suffixed := utils.MakeSafeStringOfLength(
+		strings.TrimSpace(desiredName)+" "+utils.GeneratePhrase(),
+		config.MaxChatDisplayNameLength,
+	)
+	if suffixed == "" || suffixed == currentName {
+		return
+	}
+	if available, err := repo.IsDisplayNameAvailable(suffixed); err == nil && available {
+		if err := repo.ChangeUsername(userID, suffixed); err != nil {
+			log.Errorln("oidc: unable to set suffixed display name:", err)
+		}
+	}
+}
 
 // StartAuthFlow begins the OIDC flow for the calling chat user. The
 // outer dispatcher (webserver/handlers/auth.go) wraps this in the user
@@ -32,6 +67,33 @@ func StartAuthFlow(u models.User, w http.ResponseWriter, r *http.Request) {
 	redirect, err := ao.StartAuthFlow(u.ID, accessToken, u.DisplayName)
 	if err != nil {
 		log.Debugln("OIDC start error:", err)
+		webutils.WriteSimpleResponse(w, false, err.Error())
+		return
+	}
+
+	type response struct {
+		Redirect string `json:"redirect"`
+	}
+	webutils.WriteResponse(w, response{Redirect: redirect.String()})
+}
+
+// HandleLogout returns the OIDC provider's end-session URL so the front
+// end can navigate the browser there and end the user's SSO session at
+// the provider. The outer dispatcher wraps this in the user access-token
+// middleware, so only a real chat user can request a logout URL. The
+// front end clears the local chat access token alongside this so the user
+// returns as a fresh anonymous identity.
+func HandleLogout(u models.User, w http.ResponseWriter, r *http.Request) {
+	if !ao.IsEnabled() {
+		webutils.WriteSimpleResponse(w, false, "OIDC chat-auth is not enabled on this server")
+		return
+	}
+
+	accessToken := r.URL.Query().Get("accessToken")
+
+	redirect, err := ao.LogoutURL(accessToken)
+	if err != nil {
+		log.Debugln("OIDC logout error:", err)
 		webutils.WriteSimpleResponse(w, false, err.Error())
 		return
 	}
@@ -70,24 +132,21 @@ func HandleRedirect(w http.ResponseWriter, r *http.Request) {
 	authKey := fmt.Sprintf("%s|%s", claims.Issuer, claims.Subject)
 	userRepository := userrepository.Get()
 
-	// Already linked? Switch this access token to the existing user.
+	// Already linked? Switch this access token to the existing user, then
+	// sync their chat display name to the current Authentik name.
 	if u := userRepository.GetUserByAuth(authKey, models.OIDC); u != nil {
 		log.Debugln("user with this OIDC identity already exists, signing them in")
 		if err := userRepository.SetAccessTokenToOwner(request.CurrentAccessToken, u.ID); err != nil {
 			webutils.WriteSimpleResponse(w, false, err.Error())
 			return
 		}
-		if request.DisplayName != u.DisplayName {
-			loginMessage := fmt.Sprintf("**%s** is now authenticated as **%s**", request.DisplayName, u.DisplayName)
-			if err := chat.SendSystemAction(loginMessage, true); err != nil {
-				log.Errorln(err)
-			}
-		}
+		applyAuthentikDisplayName(userRepository, u.ID, u.DisplayName, claims.Name)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 
-	// First link for this identity: save it under the current chat user.
+	// First link for this identity: save it under the current chat user
+	// and set their display name to the Authentik name.
 	log.Debugln("OIDC identity is new, linking to current chat user")
 	if err := userRepository.AddAuth(request.UserID, authKey, models.OIDC); err != nil {
 		webutils.WriteSimpleResponse(w, false, err.Error())
@@ -96,6 +155,7 @@ func HandleRedirect(w http.ResponseWriter, r *http.Request) {
 	if err := userRepository.SetUserAsAuthenticated(request.UserID); err != nil {
 		log.Errorln(err)
 	}
+	applyAuthentikDisplayName(userRepository, request.UserID, request.DisplayName, claims.Name)
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
