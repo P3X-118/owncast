@@ -5,7 +5,8 @@ import { ErrorBoundary } from 'react-error-boundary';
 import styles from './ChatModal.module.scss';
 
 import { ComponentError } from '../../ui/ComponentError/ComponentError';
-import { ChatContainer } from '../../chat/ChatContainer/ChatContainer';
+// SGC fork: ChatWithSource adds the per-viewer Local-chat / Discord toggle.
+import { ChatWithSource as ChatContainer } from '../../chat/ChatWithSource/ChatWithSource';
 import { ChatMessage } from '../../../interfaces/chat-message.model';
 import { CurrentUser } from '../../../interfaces/current-user';
 import { UserDropdown } from '../../common/UserDropdown/UserDropdown';

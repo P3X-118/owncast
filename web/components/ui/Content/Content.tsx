@@ -37,8 +37,10 @@ import { ChatModal } from '../../modals/ChatModal/ChatModal';
 import { Footer } from '../Footer/Footer';
 
 // Lazy loaded components
+// SGC fork: ChatWithSource wraps the native ChatContainer with a per-viewer
+// Local-chat / Discord toggle (Discord tab hidden unless configured).
 const ChatContainer = dynamic(
-  () => import('../../chat/ChatContainer/ChatContainer').then(mod => mod.ChatContainer),
+  () => import('../../chat/ChatWithSource/ChatWithSource').then(mod => mod.ChatWithSource),
   {
     ssr: false,
   },
