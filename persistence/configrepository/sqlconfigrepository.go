@@ -441,11 +441,14 @@ func (r *SqlConfigRepository) SetS3Config(config models.S3) error {
 
 // GetStreamLatencyLevel will return the stream latency level.
 func (r *SqlConfigRepository) GetStreamLatencyLevel() models.LatencyLevel {
+	// SGC fork: clamp to the highest defined level (the fork adds high-latency
+	// P2P levels 5/6/7), not a hardcoded 4.
+	maxLevel := float64(len(models.GetLatencyConfigs()) - 1)
 	level, err := r.datastore.GetNumber(videoLatencyLevel)
 	if err != nil {
 		level = 2 // default
-	} else if level > 4 {
-		level = 4 // highest
+	} else if level > maxLevel {
+		level = maxLevel // highest
 	}
 
 	return models.GetLatencyLevel(int(level))
