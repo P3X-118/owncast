@@ -22,13 +22,17 @@
       <b>second tab</b> to share segments peer-to-peer. Uses the P3X-118/webtorrent fork.
     </p>
 
-    <script src="/lib/webtorrent.min.js"></script>
-    <script src="/lib/hls.min.js"></script>
-    <script src="/wt-hls-loader.js"></script>
+    <!-- Relative srcs so this works under a path prefix (e.g. /p2p/) behind a
+         reverse proxy as well as at the seeder root. -->
+    <script src="lib/webtorrent.min.js"></script>
+    <script src="lib/hls.min.js"></script>
+    <script src="wt-hls-loader.js"></script>
     <script>
       const video = document.getElementById('v');
       const statsEl = document.getElementById('stats');
-      const SOURCE = new URLSearchParams(location.search).get('src') || '/media/stream.m3u8';
+      // Default to okast's public HLS master playlist (same origin as the page);
+      // override with ?src= for local PoC (e.g. ?src=/media/stream.m3u8).
+      const SOURCE = new URLSearchParams(location.search).get('src') || '/hls/stream.m3u8';
 
       const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0 };
       const byName = new Map(); // segment name -> manifest entry { magnet, ... }
@@ -36,7 +40,7 @@
 
       async function refreshManifest() {
         try {
-          const m = await (await fetch('/manifest.json')).json();
+          const m = await (await fetch('manifest.json')).json();
           trackers = m.trackers || [];
           metrics.chunkSeconds = m.chunkSeconds || 0;
           (m.live || []).forEach(e => byName.set(e.name, e));

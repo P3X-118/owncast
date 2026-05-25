@@ -148,6 +148,13 @@ server.listen(PORT, () => {
   }
 });
 
+// Order by the segment index = the trailing number before the extension, so it
+// works for both the PoC names (seg-5.m4s) and Owncast names
+// (stream-<id>-5.ts, where <id> may itself contain digits).
+function segNum(name) {
+  const m = name.match(/(\d+)\.[A-Za-z0-9]+$/);
+  return m ? Number(m[1]) : 0;
+}
 function numeric(a, b) {
-  return Number((a.match(/\d+/) || [0])[0]) - Number((b.match(/\d+/) || [0])[0]);
+  return segNum(a) - segNum(b);
 }

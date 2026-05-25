@@ -39,7 +39,7 @@ services:
       PUBLIC_HOST: 'http://localhost:8088'
       # Read the live segments from okast's data dir (mounted read-only):
       WATCH_DIR: '/okast-data/hls/0' # variant 0; adjust if multiple variants
-      SEG_RE: '\d+\.ts' # Owncast MPEG-TS segment names
+      SEG_RE: 'stream-.*-[0-9]+\.ts' # Owncast MPEG-TS segment names (stream-<id>-<n>.ts)
       POLL_MS: '1000'
       # WebSeed = okast's own HLS URL, so the origin serves the bytes P2P falls
       # back to. (okast is reachable as http://okast:8080 on the compose network.)
