@@ -68,6 +68,10 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
         clearTimeout(this._timer);
         this._timer = null;
       }
+      if (this._retryTimer) {
+        clearTimeout(this._retryTimer);
+        this._retryTimer = null;
+      }
       // Intentionally do NOT remove the torrent: keep seeding it to other peers.
     }
 
@@ -97,7 +101,7 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
       xhr.onload = () => {
         this._xhr = null;
         if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
-          this._finish(xhr.response, context, callbacks, xhr, { p2p: 0, origin: xhr.response.byteLength });
+          this._finish(xhr.response, context, callbacks, xhr, { p2p: 0, origin: xhr.response.byteLength, reason: `origin:${reason}` });
         } else if (!this._aborted) {
           callbacks.onError({ code: xhr.status, text: `wt-loader fallback (${reason}) http ${xhr.status}` }, context, xhr, this.stats);
         }
@@ -116,23 +120,38 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
     load(context, config, callbacks) {
       this.stats.loading.start = performance.now();
       const name = context.url.split('?')[0].split('/').pop();
-      const entry = getEntry ? getEntry(name) : null;
+      if (typeof wt === 'undefined' || !wt) {
+        this._httpFallback(context, config, callbacks, 'no-wt');
+        return;
+      }
+      this._attempt(name, context, config, callbacks, 4);
+    }
 
-      // Not a torrented segment (playlist/init/miss) -> straight to origin.
-      if (!entry || !entry.magnet || typeof wt === 'undefined' || !wt) {
+    // Find this segment in the manifest and fetch it from peers. The seeder can
+    // lag a couple seconds behind hls.js at the live edge, so retry a few times
+    // (1s apart) before giving up to the origin -- hls.js buffers ahead, so the
+    // short wait is safe and is what lets P2P actually engage.
+    _attempt(name, context, config, callbacks, triesLeft) {
+      if (this._aborted || this._settled) return;
+      const entry = getEntry ? getEntry(name) : null;
+      if (!entry || !entry.magnet) {
+        if (triesLeft > 0) {
+          this._retryTimer = setTimeout(
+            () => this._attempt(name, context, config, callbacks, triesLeft - 1),
+            1000,
+          );
+          return;
+        }
         this._httpFallback(context, config, callbacks, 'no-magnet');
         return;
       }
 
-      // Strip the WebSeed (ws=) so WebTorrent fetches the segment from PEERS,
-      // not the origin. Otherwise the (small, fast) origin webseed always wins
-      // the race before any WebRTC peer connection forms -> 0% P2P. The origin
-      // is still used, but only via our own deadline fallback below.
+      // Strip the WebSeed (ws=) so WebTorrent fetches from PEERS, not the origin
+      // (the small/fast origin webseed otherwise wins before any WebRTC peer
+      // forms -> 0% P2P). Same infohash, so we still join the seeder's swarm.
       const magnet = entry.magnet.replace(/[&?]ws=[^&]+/g, '');
 
-      // Give peers a deadline; if they don't deliver in time, fall back to the
-      // origin so playback never blocks on peers. Short enough to stay within
-      // hls.js's buffer-ahead window.
+      // Peer deadline; fall back to origin if peers don't deliver in time.
       this._timer = setTimeout(() => {
         if (!this._settled && !this._aborted) this._httpFallback(context, config, callbacks, 'wt-deadline');
       }, 8000);
@@ -148,7 +167,11 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
           .then(data => {
             const wire = (torrent.wires || []).reduce((n, w) => n + (w.downloaded || 0), 0);
             const p2p = Math.min(data.byteLength, wire);
-            this._finish(data, context, callbacks, torrent, { p2p, origin: Math.max(0, data.byteLength - p2p) });
+            this._finish(data, context, callbacks, torrent, {
+              p2p,
+              origin: Math.max(0, data.byteLength - p2p),
+              reason: p2p > 0 ? 'p2p' : 'wt-nopeerbytes',
+            });
           })
           .catch(() => this._httpFallback(context, config, callbacks, 'arraybuffer-failed'));
       };

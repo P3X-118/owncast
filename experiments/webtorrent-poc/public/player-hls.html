@@ -37,7 +37,7 @@
       // override with ?src= for local PoC (e.g. ?src=/media/stream.m3u8).
       const SOURCE = new URLSearchParams(location.search).get('src') || '/hls/stream.m3u8';
 
-      const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0 };
+      const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0, reasons: {} };
       const byName = new Map(); // segment name -> manifest entry { magnet, ... }
       let trackers = [];
 
@@ -54,10 +54,11 @@
 
       function start() {
         const wt = new WebTorrent();
-        const onBytes = ({ p2p, origin }) => {
+        const onBytes = ({ p2p, origin, reason }) => {
           metrics.p2p += p2p || 0;
           metrics.origin += origin || 0;
           metrics.fragments += 1;
+          if (reason) metrics.reasons[reason] = (metrics.reasons[reason] || 0) + 1;
         };
         const getEntry = name => byName.get(name) || null;
 
@@ -104,6 +105,7 @@
             `manifest chunks : ${byName.size}\n` +
             `P2P bytes       : ${fmt(metrics.p2p)}  (${((metrics.p2p / total) * 100).toFixed(0)}%)\n` +
             `origin bytes    : ${fmt(metrics.origin)}  (${((metrics.origin / total) * 100).toFixed(0)}%)\n` +
+            `reasons         : ${Object.entries(metrics.reasons).map(([k, v]) => `${k}:${v}`).join('  ') || '-'}\n` +
             `video time      : ${video.currentTime.toFixed(1)}s`;
         }, 1000);
       }
