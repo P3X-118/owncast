@@ -124,11 +124,18 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
         return;
       }
 
-      // Safety net: if WebTorrent stalls, fall back to the origin so playback
-      // never blocks on peers.
+      // Strip the WebSeed (ws=) so WebTorrent fetches the segment from PEERS,
+      // not the origin. Otherwise the (small, fast) origin webseed always wins
+      // the race before any WebRTC peer connection forms -> 0% P2P. The origin
+      // is still used, but only via our own deadline fallback below.
+      const magnet = entry.magnet.replace(/[&?]ws=[^&]+/g, '');
+
+      // Give peers a deadline; if they don't deliver in time, fall back to the
+      // origin so playback never blocks on peers. Short enough to stay within
+      // hls.js's buffer-ahead window.
       this._timer = setTimeout(() => {
-        if (!this._settled && !this._aborted) this._httpFallback(context, config, callbacks, 'wt-timeout');
-      }, (config && config.timeout) || 15000);
+        if (!this._settled && !this._aborted) this._httpFallback(context, config, callbacks, 'wt-deadline');
+      }, 8000);
 
       const onTorrent = torrent => {
         const file = torrent.files && torrent.files[0];
@@ -147,12 +154,12 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
       };
 
       try {
-        const existing = wt.get(entry.magnet);
+        const existing = wt.get(magnet);
         if (existing) {
           if (existing.ready) onTorrent(existing);
           else existing.once('ready', () => onTorrent(existing));
         } else {
-          wt.add(entry.magnet, trackers ? { announce: trackers } : {}, onTorrent);
+          wt.add(magnet, trackers ? { announce: trackers } : {}, onTorrent);
         }
       } catch (e) {
         this._httpFallback(context, config, callbacks, `add-threw:${e.message}`);

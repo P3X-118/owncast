@@ -95,9 +95,11 @@
 
         setInterval(() => {
           const total = metrics.p2p + metrics.origin || 1;
+          const peers = wt.torrents.reduce((n, t) => n + t.numPeers, 0);
           statsEl.textContent =
             `source          : ${SOURCE}\n` +
             `chunk seconds   : ${metrics.chunkSeconds}\n` +
+            `peers (now)     : ${peers} across ${wt.torrents.length} torrents\n` +
             `fragments       : ${metrics.fragments}\n` +
             `manifest chunks : ${byName.size}\n` +
             `P2P bytes       : ${fmt(metrics.p2p)}  (${((metrics.p2p / total) * 100).toFixed(0)}%)\n` +
