@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>okast WebTorrent P2P live PoC</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 1.5rem; background: #14101f; color: #e8e6f0; }
+      video { width: 640px; max-width: 100%; background: #000; border-radius: 6px; }
+      h1 { font-size: 1.1rem; color: #b9a8ff; }
+      #stats { margin-top: 1rem; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+      .k { color: #8a7fb8; }
+      a { color: #6544e9; }
+    </style>
+  </head>
+  <body>
+    <h1>okast &mdash; WebTorrent-backed live stream (P0 PoC)</h1>
+    <video id="v" controls autoplay muted playsinline></video>
+    <div id="stats">starting&hellip;</div>
+    <p>
+      Open this page in a <b>second tab/browser/device</b> to watch peers share chunks
+      (peer bytes rise, origin/webseed bytes stay low). Uses the P3X-118/webtorrent fork.
+    </p>
+
+    <!-- The P3X-118/webtorrent fork's own browser build -->
+    <script src="/lib/webtorrent.min.js"></script>
+    <script>
+      const video = document.getElementById('v');
+      const statsEl = document.getElementById('stats');
+      // h264 Main@3.0 + AAC-LC, matching make-segments.sh. Adjust if you re-encode.
+      const MIME = 'video/mp4; codecs="avc1.4d401e,mp4a.40.2"';
+
+      const client = new WebTorrent();
+      let stats = { peers: 0, p2pBytes: 0, webseedBytes: 0, chunks: 0 };
+
+      if (!('MediaSource' in window) || !MediaSource.isTypeSupported(MIME)) {
+        statsEl.textContent = 'MediaSource or codec not supported in this browser: ' + MIME;
+      } else {
+        start();
+      }
+
+      function start() {
+        const mediaSource = new MediaSource();
+        video.src = URL.createObjectURL(mediaSource);
+        mediaSource.addEventListener('sourceopen', async () => {
+          const sb = mediaSource.addSourceBuffer(MIME);
+          const queue = [];
+          let appending = false;
+          const pump = () => {
+            if (appending || queue.length === 0 || sb.updating) return;
+            appending = true;
+            const buf = queue.shift();
+            sb.appendBuffer(buf);
+          };
+          sb.addEventListener('updateend', () => { appending = false; pump(); });
+          const enqueue = buf => { queue.push(buf); pump(); };
+
+          const manifest = await (await fetch('/manifest.json')).json();
+          // init segment first (defines tracks for MSE)
+          enqueue(await (await fetch(manifest.initUrl)).arrayBuffer());
+
+          const seen = new Set();
+          const trackers = manifest.trackers || [];
+
+          async function poll() {
+            let m;
+            try { m = await (await fetch('/manifest.json')).json(); } catch { setTimeout(poll, 2000); return; }
+            for (const chunk of m.live) {
+              if (seen.has(chunk.seq)) continue;
+              seen.add(chunk.seq);
+              fetchChunk(chunk, trackers, enqueue);
+            }
+            setTimeout(poll, 2000);
+          }
+          poll();
+          setInterval(render, 1000);
+        });
+      }
+
+      function fetchChunk(chunk, trackers, enqueue) {
+        // Add by magnet so browser peers (via wss trackers) can supply it; the
+        // torrent also carries the webseed, so origin is the automatic fallback.
+        client.add(chunk.magnet, { announce: trackers }, torrent => {
+          const before = torrent.received;
+          torrent.on('done', () => {
+            torrent.files[0].arrayBuffer().then(ab => {
+              stats.chunks++;
+              // crude split: bytes from web peers (webseed) vs wire peers
+              const webseed = torrent.received - sumWirePeers(torrent);
+              stats.webseedBytes += Math.max(0, webseed);
+              stats.p2pBytes += Math.max(0, sumWirePeers(torrent));
+              enqueue(ab);
+            });
+          });
+        });
+      }
+
+      function sumWirePeers(torrent) {
+        // approximate P2P (non-webseed) downloaded bytes
+        try {
+          return (torrent.wires || []).reduce((n, w) => n + (w.downloaded || 0), 0);
+        } catch { return 0; }
+      }
+
+      function render() {
+        stats.peers = client.torrents.reduce((n, t) => n + t.numPeers, 0);
+        const total = stats.p2pBytes + stats.webseedBytes || 1;
+        statsEl.textContent =
+          `chunks appended : ${stats.chunks}\n` +
+          `peers (now)     : ${stats.peers}\n` +
+          `P2P bytes       : ${fmt(stats.p2pBytes)}  (${((stats.p2pBytes / total) * 100).toFixed(0)}%)\n` +
+          `webseed/origin  : ${fmt(stats.webseedBytes)}  (${((stats.webseedBytes / total) * 100).toFixed(0)}%)\n` +
+          `video time      : ${video.currentTime.toFixed(1)}s  (buffered ${buffered()}s)`;
+      }
+      const fmt = n => (n > 1e6 ? (n / 1e6).toFixed(1) + 'MB' : (n / 1e3).toFixed(0) + 'kB');
+      function buffered() {
+        try { return video.buffered.length ? (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1) : '0'; }
+        catch { return '0'; }
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "okast-webtorrent-poc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "P0 PoC: WebTorrent-backed live HLS chunk streaming for okast. Proves per-chunk torrent + webseed (origin) fallback + sliding-window live manifest, player-agnostic.",
+  "scripts": {
+    "segments": "bash make-segments.sh",
+    "seed": "node seeder.js",
+    "consume": "node consume.js"
+  },
+  "dependencies": {
+    "webtorrent": "3.0.0"
+  }
+}

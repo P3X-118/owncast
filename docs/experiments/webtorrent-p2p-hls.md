@@ -78,13 +78,26 @@ ffmpeg (20s segments) ──► HLS dir (/hls/*.ts, stream.m3u8)  [unchanged ori
    - sliding window: destroy torrents older than N
 ```
 
-### The 20-second decision
+### Chunk size = a tunable, not a constant (admin slider + metrics)
 - Larger chunks (20s) = more time for a chunk to propagate across peers before
-  it's needed → higher P2P hit-rate; fewer torrents/announces; **but ~20-40s
-  added latency**. Acceptable for a radio/"broadcast" feel; not for low-latency
-  interactive. This matches issue #448's "bigger chunks stream better P2P".
-- Implemented as a new `LatencyLevel{ SecondsPerSegment: 20, SegmentCount: ~6 }`
-  (≈120s live window = the P2P sharing window).
+  it's needed → higher P2P hit-rate; fewer torrents/announces; **but more added
+  latency**. Smaller chunks = lower latency, worse P2P efficiency. The sweet spot
+  is empirical and audience-dependent.
+- DECISION (user, 2026-05-25): expose chunk size / latency as an **admin slider**
+  and build a **graphing/report mechanism** to collect data (P2P vs origin bytes,
+  peer count, P2P hit-rate, rebuffer events, glass-to-glass latency) so we can
+  tune it with real numbers. So:
+  - chunk size is a runtime config (drives the `LatencyLevel.SecondsPerSegment`),
+    adjustable without redeploy (same pattern as the Discord/OIDC runtime config);
+  - the player + seeder emit metrics to a collector; an admin report graphs them.
+- Start at `SecondsPerSegment: 20` for the PoC; make it a slider in P2/P3.
+
+> **Steer (user, 2026-05-25):** Clappr and BemTV are *mostly irrelevant*. The
+> only thing of value from `clappr-p2phls-plugin` is its **live-streaming torrent
+> strategy** (sliding window of live segments, look-ahead peer fetch ahead of
+> playback, buffer-aware P2P-vs-origin selection) — which we update and rebuild on
+> WebTorrent. Do NOT port BemTV/Clappr. Player path below stays open, but the P0
+> PoC is deliberately player-agnostic and proves the *strategy*, not a player.
 
 ### Player integration — decision needed (see below)
 - **Path A — hls.js + custom loader (recommended).** Swap the web player to
@@ -115,6 +128,11 @@ ffmpeg (20s segments) ──► HLS dir (/hls/*.ts, stream.m3u8)  [unchanged ori
 5. **Signaling/discovery infra** — WebTorrent trackers (wss). Either run our own
    `bittorrent-tracker` (wss) on the SGC mesh or use public wss trackers.
    (Plus TURN for NAT-restricted peers — reuse/extend existing infra.)
+6. **Admin chunk-size slider** — runtime config for `SecondsPerSegment`, no
+   redeploy (Discord/OIDC runtime-config pattern).
+7. **Metrics + graphing report** — player & seeder emit P2P/origin bytes, peer
+   count, P2P hit-rate, rebuffers, latency; an admin report graphs them to tune
+   chunk size empirically.
 
 ## Phased plan
 
