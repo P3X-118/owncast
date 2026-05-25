@@ -63,11 +63,19 @@ const send = (res, code, type, body) => {
 const server = http.createServer((req, res) => {
   const p = new URL(req.url, HOST).pathname;
 
-  if (p === '/' || p === '/player' || p === '/index.html') {
-    return send(res, 200, 'text/html', fs.readFileSync(path.join(__dirname, 'public', 'player.html')));
-  }
-  if (p === '/lib/webtorrent.min.js') {
-    return send(res, 200, 'text/javascript', fs.readFileSync(path.join(__dirname, 'public', 'lib', 'webtorrent.min.js')));
+  // Static assets (hls.js player is the default; /raw = the bare-MSE PoC player).
+  const STATIC = {
+    '/': ['player-hls.html', 'text/html'],
+    '/index.html': ['player-hls.html', 'text/html'],
+    '/raw': ['player.html', 'text/html'],
+    '/player-hls.html': ['player-hls.html', 'text/html'],
+    '/wt-hls-loader.js': ['wt-hls-loader.js', 'text/javascript'],
+    '/lib/webtorrent.min.js': ['lib/webtorrent.min.js', 'text/javascript'],
+    '/lib/hls.min.js': ['lib/hls.min.js', 'text/javascript'],
+  };
+  if (STATIC[p]) {
+    const [rel, type] = STATIC[p];
+    return send(res, 200, type, fs.readFileSync(path.join(__dirname, 'public', rel)));
   }
   if (p === '/manifest.json') {
     const initUrl = fs.existsSync(path.join(SRC_DIR, INIT_NAME)) ? `${WEBSEED_BASE}/${INIT_NAME}` : null;

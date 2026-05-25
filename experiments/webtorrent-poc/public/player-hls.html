@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>okast hls.js + WebTorrent P2P PoC</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 1.5rem; background: #14101f; color: #e8e6f0; }
+      video { width: 640px; max-width: 100%; background: #000; border-radius: 6px; }
+      h1 { font-size: 1.1rem; color: #b9a8ff; }
+      #stats { margin-top: 1rem; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+      a { color: #6544e9; }
+    </style>
+  </head>
+  <body>
+    <h1>okast &mdash; hls.js + WebTorrent fragment loader (PoC)</h1>
+    <video id="v" controls autoplay muted playsinline></video>
+    <div id="stats">starting&hellip;</div>
+    <p>
+      hls.js plays the HLS playlist; media segments are fetched over WebTorrent
+      (peers first, origin WebSeed fallback) by the custom fragment loader. Open a
+      <b>second tab</b> to share segments peer-to-peer. Uses the P3X-118/webtorrent fork.
+    </p>
+
+    <script src="/lib/webtorrent.min.js"></script>
+    <script src="/lib/hls.min.js"></script>
+    <script src="/wt-hls-loader.js"></script>
+    <script>
+      const video = document.getElementById('v');
+      const statsEl = document.getElementById('stats');
+      const SOURCE = new URLSearchParams(location.search).get('src') || '/media/stream.m3u8';
+
+      const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0 };
+      const byName = new Map(); // segment name -> manifest entry { magnet, ... }
+      let trackers = [];
+
+      async function refreshManifest() {
+        try {
+          const m = await (await fetch('/manifest.json')).json();
+          trackers = m.trackers || [];
+          metrics.chunkSeconds = m.chunkSeconds || 0;
+          (m.live || []).forEach(e => byName.set(e.name, e));
+        } catch (e) {
+          /* keep last map */
+        }
+      }
+
+      function start() {
+        const wt = new WebTorrent();
+        const onBytes = ({ p2p, origin }) => {
+          metrics.p2p += p2p || 0;
+          metrics.origin += origin || 0;
+          metrics.fragments += 1;
+        };
+        const getEntry = name => byName.get(name) || null;
+
+        const fLoader = window.createWebTorrentFragmentLoader({ wt, getEntry, trackers, onBytes });
+
+        if (!window.Hls || !Hls.isSupported()) {
+          statsEl.textContent = 'hls.js is not supported in this browser.';
+          return;
+        }
+        const hls = new Hls({ fLoader, lowLatencyMode: false, backBufferLength: 30 });
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) statsEl.textContent = `hls.js fatal: ${data.type} / ${data.details}`;
+        });
+        hls.loadSource(SOURCE);
+        hls.attachMedia(video);
+
+        setInterval(() => {
+          const total = metrics.p2p + metrics.origin || 1;
+          statsEl.textContent =
+            `source          : ${SOURCE}\n` +
+            `chunk seconds   : ${metrics.chunkSeconds}\n` +
+            `fragments       : ${metrics.fragments}\n` +
+            `manifest chunks : ${byName.size}\n` +
+            `P2P bytes       : ${fmt(metrics.p2p)}  (${((metrics.p2p / total) * 100).toFixed(0)}%)\n` +
+            `origin bytes    : ${fmt(metrics.origin)}  (${((metrics.origin / total) * 100).toFixed(0)}%)\n` +
+            `video time      : ${video.currentTime.toFixed(1)}s`;
+        }, 1000);
+      }
+
+      const fmt = n => (n > 1e6 ? `${(n / 1e6).toFixed(1)}MB` : `${(n / 1e3).toFixed(0)}kB`);
+
+      // Prime the manifest map, then start; keep refreshing for live edges.
+      refreshManifest().then(start);
+      setInterval(refreshManifest, 3000);
+    </script>
+  </body>
+</html>
