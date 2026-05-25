@@ -24,10 +24,13 @@
 
     <!-- Relative srcs so this works under a path prefix (e.g. /p2p/) behind a
          reverse proxy as well as at the seeder root. -->
-    <script src="lib/webtorrent.min.js"></script>
     <script src="lib/hls.min.js"></script>
     <script src="wt-hls-loader.js"></script>
-    <script>
+    <!-- webtorrent.min.js is an ES module (exports a default), so it must be
+         imported, not loaded via a plain <script> (which leaves WebTorrent
+         undefined). hls.js + the loader are UMD globals and stay as scripts. -->
+    <script type="module">
+      import WebTorrent from './lib/webtorrent.min.js';
       const video = document.getElementById('v');
       const statsEl = document.getElementById('stats');
       // Default to okast's public HLS master playlist (same origin as the page);
@@ -81,7 +84,7 @@
           const dO = metrics.origin - lastOrigin;
           lastP2p = metrics.p2p;
           lastOrigin = metrics.origin;
-          const peers = client.torrents.reduce((n, t) => n + t.numPeers, 0);
+          const peers = wt.torrents.reduce((n, t) => n + t.numPeers, 0);
           fetch('/api/p2p/report', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
