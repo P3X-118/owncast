@@ -16,7 +16,16 @@ export interface ClientConfig {
   federation: Federation;
   notifications: Notifications;
   authentication: Authentication;
+  discordChat?: DiscordChatConfig;
   socketHostOverride?: string;
+}
+
+// SGC fork: optional WidgetBot-embedded Discord chat panel. Populated from
+// the server's /api/config (sourced from OWNCAST_DISCORD_WIDGETBOT_* env);
+// when server/channel are empty the Discord option is hidden.
+export interface DiscordChatConfig {
+  server: string;
+  channel: string;
 }
 
 interface Authentication {
@@ -72,6 +81,10 @@ export function makeEmptyClientConfig(): ClientConfig {
     },
     authentication: {
       indieAuthEnabled: false,
+    },
+    discordChat: {
+      server: '',
+      channel: '',
     },
   };
 }

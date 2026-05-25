@@ -1,13 +1,14 @@
 import { FC, useEffect, useState } from 'react';
 import { ChatContainer, ChatContainerProps } from '../ChatContainer/ChatContainer';
-import { DiscordChat, isDiscordChatConfigured } from '../DiscordChat/DiscordChat';
+import { DiscordChat, useDiscordChatConfig } from '../DiscordChat/DiscordChat';
 import { getLocalStorage, setLocalStorage } from '../../../utils/localStorage';
 import styles from './ChatWithSource.module.scss';
 
 // SGC fork: let each viewer switch their chat panel between the native local
 // chat and an embedded Discord channel. The choice is per-viewer and
 // remembered in localStorage. When Discord isn't configured (no WidgetBot
-// server/channel at build time) this renders the local chat unchanged.
+// server/channel in the server's runtime /api/config) this renders the local
+// chat unchanged.
 //
 // The local ChatContainer is always kept mounted so its websocket/state
 // persists across toggles; the Discord embed is layered on top when selected.
@@ -16,7 +17,7 @@ const SOURCE_KEY = 'cooeynet_chat_source';
 type Source = 'local' | 'discord';
 
 export const ChatWithSource: FC<ChatContainerProps> = props => {
-  const discordAvailable = isDiscordChatConfigured();
+  const { configured: discordAvailable } = useDiscordChatConfig();
   const [source, setSource] = useState<Source>('local');
   const [mounted, setMounted] = useState(false);
 

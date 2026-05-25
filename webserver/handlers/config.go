@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/owncast/owncast/activitypub"
 	"github.com/owncast/owncast/config"
@@ -38,6 +39,17 @@ type webConfigResponse struct {
 	ChatSpamProtectionDisabled bool                         `json:"chatSpamProtectionDisabled"`
 	NSFW                       bool                         `json:"nsfw"`
 	Authentication             authenticationConfigResponse `json:"authentication"`
+	DiscordChat                discordChatConfigResponse    `json:"discordChat"`
+}
+
+// discordChatConfigResponse advertises the optional WidgetBot-embedded
+// Discord chat panel (SGC fork). Sourced from the OWNCAST_DISCORD_WIDGETBOT_*
+// env vars so it is set per-deployment (host_vars) and changeable with a
+// restart -- no rebuild. When either field is empty the web app hides the
+// Discord option entirely (see web ChatWithSource).
+type discordChatConfigResponse struct {
+	Server  string `json:"server,omitempty"`
+	Channel string `json:"channel,omitempty"`
 }
 
 type federationConfigResponse struct {
@@ -120,6 +132,11 @@ func getConfigResponse() webConfigResponse {
 		IndieAuthEnabled: configRepository.GetServerURL() != "",
 	}
 
+	discordChatResponse := discordChatConfigResponse{
+		Server:  os.Getenv("OWNCAST_DISCORD_WIDGETBOT_SERVER"),
+		Channel: os.Getenv("OWNCAST_DISCORD_WIDGETBOT_CHANNEL"),
+	}
+
 	return webConfigResponse{
 		Name:                       configRepository.GetServerName(),
 		Summary:                    serverSummary,
@@ -142,6 +159,7 @@ func getConfigResponse() webConfigResponse {
 		Authentication:             authenticationResponse,
 		AppearanceVariables:        configRepository.GetCustomColorVariableValues(),
 		HideViewerCount:            configRepository.GetHideViewerCount(),
+		DiscordChat:                discordChatResponse,
 	}
 }
 

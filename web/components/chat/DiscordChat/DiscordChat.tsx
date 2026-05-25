@@ -1,22 +1,36 @@
 import { FC } from 'react';
+import { useRecoilValue } from 'recoil';
+import { clientConfigStateAtom } from '../../stores/ClientConfigStore';
+import { ClientConfig } from '../../../interfaces/client-config.model';
 import styles from './DiscordChat.module.scss';
 
 // SGC fork: embed a Discord channel as an alternate chat source via WidgetBot
 // (https://widgetbot.io). The WidgetBot bot must be invited to the Discord
-// server, and the server + channel IDs are provided at build time:
+// server, and the server + channel IDs are provided by the SERVER at runtime
+// via /api/config (sourced from the OWNCAST_DISCORD_WIDGETBOT_SERVER /
+// OWNCAST_DISCORD_WIDGETBOT_CHANNEL env vars on the container). Runtime config
+// means the IDs can be changed with a restart -- no web rebuild required.
 //
-//   NEXT_PUBLIC_DISCORD_WIDGETBOT_SERVER  = Discord server (guild) ID
-//   NEXT_PUBLIC_DISCORD_WIDGETBOT_CHANNEL = channel ID to show
-//
-// When unset, the Discord chat option is hidden entirely (see
-// isDiscordChatConfigured) and the viewer only sees the native local chat.
-const SERVER = process.env.NEXT_PUBLIC_DISCORD_WIDGETBOT_SERVER || '';
-const CHANNEL = process.env.NEXT_PUBLIC_DISCORD_WIDGETBOT_CHANNEL || '';
+// When either is unset the Discord chat option is hidden entirely (see
+// useDiscordChatConfig + ChatWithSource) and the viewer only sees local chat.
 
-export const isDiscordChatConfigured = (): boolean => Boolean(SERVER && CHANNEL);
+// useDiscordChatConfig reads the WidgetBot server/channel from the live
+// client config and reports whether the Discord option should be offered.
+export const useDiscordChatConfig = (): {
+  server: string;
+  channel: string;
+  configured: boolean;
+} => {
+  const config = useRecoilValue<ClientConfig>(clientConfigStateAtom);
+  const server = config?.discordChat?.server || '';
+  const channel = config?.discordChat?.channel || '';
+  return { server, channel, configured: Boolean(server && channel) };
+};
 
 export const DiscordChat: FC = () => {
-  if (!isDiscordChatConfigured()) {
+  const { server, channel, configured } = useDiscordChatConfig();
+
+  if (!configured) {
     return (
       <div className={styles.placeholder}>
         <p>Discord chat is not configured.</p>
@@ -24,7 +38,7 @@ export const DiscordChat: FC = () => {
     );
   }
 
-  const src = `https://e.widgetbot.io/channels/${SERVER}/${CHANNEL}`;
+  const src = `https://e.widgetbot.io/channels/${server}/${channel}`;
   return (
     <div className={styles.discordChat}>
       <iframe
