@@ -71,6 +71,25 @@
         hls.loadSource(SOURCE);
         hls.attachMedia(video);
 
+        // Report deltas to okast's metrics endpoint (same origin) so the admin
+        // P2P report can aggregate across viewers. Deltas avoid double-counting.
+        const clientId = Math.random().toString(36).slice(2, 10);
+        let lastP2p = 0;
+        let lastOrigin = 0;
+        setInterval(() => {
+          const dP = metrics.p2p - lastP2p;
+          const dO = metrics.origin - lastOrigin;
+          lastP2p = metrics.p2p;
+          lastOrigin = metrics.origin;
+          const peers = client.torrents.reduce((n, t) => n + t.numPeers, 0);
+          fetch('/api/p2p/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            keepalive: true,
+            body: JSON.stringify({ chunkSeconds: metrics.chunkSeconds, peers, p2pBytes: dP, originBytes: dO, clientId }),
+          }).catch(() => {});
+        }, 10000);
+
         setInterval(() => {
           const total = metrics.p2p + metrics.origin || 1;
           statsEl.textContent =
