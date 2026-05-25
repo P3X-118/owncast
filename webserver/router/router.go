@@ -45,6 +45,11 @@ func Start(enableVerboseLogging bool) error {
 	// Return HLS video
 	r.HandleFunc("/hls/*", handlers.HandleHLSRequest)
 
+	// SGC fork (experimental): WebTorrent P2P livestream metrics. Viewers POST
+	// samples; the admin report reads the series. See webserver/handlers/p2pmetrics.go.
+	r.HandleFunc("/api/p2p/report", handlers.HandleP2PReport)
+	r.HandleFunc("/api/admin/p2p/metrics", middleware.RequireAdminAuth(handlers.GetP2PMetrics))
+
 	// The admin web app.
 	r.HandleFunc("/admin/*", middleware.RequireAdminAuth(handlers.IndexHandler))
 

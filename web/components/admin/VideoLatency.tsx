@@ -26,6 +26,9 @@ const SLIDER_MARKS = {
   2: ' ',
   3: ' ',
   4: 'Highest',
+  5: '10s',
+  6: '20s',
+  7: '30s',
 };
 
 const SLIDER_COMMENTS = {
@@ -34,6 +37,11 @@ const SLIDER_COMMENTS = {
   2: 'Medium latency, medium error tolerance (Default)',
   3: 'High latency, high error tolerance',
   4: 'Highest latency, highest error tolerance',
+  // SGC fork: high-latency levels double as the WebTorrent P2P chunk size
+  // (segment length). Bigger chunks share better P2P; higher latency.
+  5: 'P2P chunking: 10s segments (~60s latency) for WebTorrent peer sharing.',
+  6: 'P2P chunking: 20s segments (~120s latency). Recommended for WebTorrent P2P.',
+  7: 'P2P chunking: 30s segments (~180s latency). Maximum peer-propagation window.',
 };
 
 // eslint-disable-next-line import/prefer-default-export
@@ -129,7 +137,7 @@ export const VideoLatency: FC = () => {
           tipFormatter={value => SLIDER_COMMENTS[value]}
           onChange={handleChange}
           min={0}
-          max={4}
+          max={7}
           marks={SLIDER_MARKS}
           defaultValue={selectedOption}
           value={selectedOption}

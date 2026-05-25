@@ -32,7 +32,8 @@ async function main() {
   console.log(`[consume] newest chunk: seq=${chunk.seq} ${chunk.name} (${chunk.length}B) infoHash=${chunk.infoHash}`);
 
   const torrentBuf = Buffer.from(await (await fetch(`${BASE}${chunk.torrentUrl}`)).arrayBuffer());
-  const originBuf = Buffer.from(await (await fetch(`${BASE}${chunk.webseed}`)).arrayBuffer());
+  // chunk.webseed is an absolute URL (the origin); fetch it directly for the reference copy.
+  const originBuf = Buffer.from(await (await fetch(chunk.webseed)).arrayBuffer());
   console.log(`[consume] fetched .torrent (${torrentBuf.length}B) + origin file (${originBuf.length}B) for reference`);
 
   // tracker+dht off => no peers possible => must use the WebSeed (origin).

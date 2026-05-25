@@ -15,6 +15,14 @@ func GetLatencyConfigs() map[int]LatencyLevel {
 		2: {Level: 2, SecondsPerSegment: 3, SegmentCount: 10}, // Default Approx 10 seconds
 		3: {Level: 3, SecondsPerSegment: 4, SegmentCount: 8},  // Approx 15 seconds
 		4: {Level: 4, SecondsPerSegment: 5, SegmentCount: 5},  // Approx 18 seconds
+		// SGC fork: high-latency levels for WebTorrent P2P chunking. Bigger
+		// segments give a chunk more time to propagate across peers before it is
+		// needed (higher P2P hit-rate, fewer torrents) at the cost of latency.
+		// They extend the admin latency slider so chunk size is tunable for the
+		// P2P experiment + metrics. See docs/experiments/webtorrent-p2p-hls.md.
+		5: {Level: 5, SecondsPerSegment: 10, SegmentCount: 6}, // ~60s window
+		6: {Level: 6, SecondsPerSegment: 20, SegmentCount: 6}, // ~120s window (P2P target)
+		7: {Level: 7, SecondsPerSegment: 30, SegmentCount: 6}, // ~180s window
 	}
 }
 

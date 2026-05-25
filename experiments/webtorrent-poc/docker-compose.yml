@@ -1,0 +1,53 @@
+# Experimental compose: okast (Owncast) + the WebTorrent chunk-seeder companion.
+#
+# okast writes HLS to its data dir; the seeder mounts that dir read-only, watches
+# the live segments, and seeds each as a torrent whose WebSeed points back at
+# okast's own /hls URL (so origin fallback is automatic). The seeder serves the
+# manifest + PoC player on :8088.
+#
+#   docker compose up --build
+#   # stream into rtmp://localhost:1935/live (key: abc123), admin at :8080/admin
+#   # P2P manifest + player: http://localhost:8088
+#
+# Set okast's latency level to a P2P level (5/6/7 = 10/20/30s) in the admin UI
+# so segments are chunked for P2P; SEG_RE below matches Owncast's TS segments.
+#
+# NOTE: Owncast emits MPEG-TS segments by default (no init.mp4); the PoC player's
+# MSE path expects fMP4, so browser playback here is for the seeder/metrics loop
+# until the hls.js player path lands (see ../webtorrent-p2p-hls.md). The seeder +
+# webseed + manifest + metrics all work against TS regardless.
+
+services:
+  okast:
+    image: legitservices/okast:0.2.2-7
+    restart: unless-stopped
+    ports:
+      - '8080:8080' # web + HLS origin (the WebSeed target)
+      - '1935:1935' # RTMP ingest
+    volumes:
+      - okast-data:/app/data
+
+  seeder:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - okast
+    environment:
+      PORT: '8088'
+      WINDOW: '6'
+      CHUNK_SECONDS: '20'
+      PUBLIC_HOST: 'http://localhost:8088'
+      # Read the live segments from okast's data dir (mounted read-only):
+      WATCH_DIR: '/okast-data/hls/0' # variant 0; adjust if multiple variants
+      SEG_RE: '\d+\.ts' # Owncast MPEG-TS segment names
+      POLL_MS: '1000'
+      # WebSeed = okast's own HLS URL, so the origin serves the bytes P2P falls
+      # back to. (okast is reachable as http://okast:8080 on the compose network.)
+      WEBSEED_BASE: 'http://okast:8080/hls/0'
+    ports:
+      - '8088:8088'
+    volumes:
+      - okast-data:/okast-data:ro
+
+volumes:
+  okast-data:

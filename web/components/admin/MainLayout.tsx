@@ -191,6 +191,10 @@ export const MainLayout: FC<MainLayoutProps> = ({ children }) => {
       key: '/admin/stream-health',
     },
     {
+      label: <Link href="/admin/p2p-metrics">P2P Metrics</Link>,
+      key: '/admin/p2p-metrics',
+    },
+    {
       label: <Link href="/admin/logs">Logs</Link>,
       key: '/admin/logs',
     },

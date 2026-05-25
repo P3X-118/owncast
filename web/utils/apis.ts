@@ -21,6 +21,9 @@ export const SERVER_CONFIG_UPDATE_URL = `${API_LOCATION}config`;
 // Get viewer count over time
 export const VIEWERS_OVER_TIME = `${API_LOCATION}viewersOverTime`;
 
+// SGC fork (experimental): WebTorrent P2P livestream metrics for the admin report.
+export const P2P_METRICS = `${API_LOCATION}p2p/metrics`;
+
 // Get active viewer details
 export const ACTIVE_VIEWER_DETAILS = `${API_LOCATION}viewers`;
 
