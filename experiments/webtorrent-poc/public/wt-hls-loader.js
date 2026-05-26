@@ -176,14 +176,20 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
           .catch(() => this._httpFallback(context, config, callbacks, 'arraybuffer-failed'));
       };
 
+      // webtorrent 3.x's client.get() returns a Promise (not a Torrent), so
+      // normalise with Promise.resolve() and act on the resolved value.
       try {
-        const existing = wt.get(magnet);
-        if (existing) {
-          if (existing.ready) onTorrent(existing);
-          else existing.once('ready', () => onTorrent(existing));
-        } else {
-          wt.add(magnet, trackers ? { announce: trackers } : {}, onTorrent);
-        }
+        Promise.resolve(wt.get(magnet))
+          .then(existing => {
+            if (this._aborted || this._settled) return;
+            if (existing) {
+              if (existing.ready) onTorrent(existing);
+              else existing.once('ready', () => onTorrent(existing));
+            } else {
+              wt.add(magnet, trackers ? { announce: trackers } : {}, onTorrent);
+            }
+          })
+          .catch(e => this._httpFallback(context, config, callbacks, `get-failed:${e.message}`));
       } catch (e) {
         this._httpFallback(context, config, callbacks, `add-threw:${e.message}`);
       }
