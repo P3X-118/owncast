@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>okast hls.js + WebTorrent P2P PoC</title>
+    <title>okast persistent-mesh P2P PoC</title>
     <style>
       body { font: 14px/1.5 system-ui, sans-serif; margin: 1.5rem; background: #14101f; color: #e8e6f0; }
       video { width: 640px; max-width: 100%; background: #000; border-radius: 6px; }
@@ -13,69 +13,43 @@
     </style>
   </head>
   <body>
-    <h1>okast &mdash; hls.js + WebTorrent fragment loader (PoC)</h1>
+    <h1>okast &mdash; hls.js + persistent peer-mesh (PoC v2)</h1>
     <video id="v" controls autoplay muted playsinline></video>
     <div id="stats">starting&hellip;</div>
     <p>
-      hls.js plays the HLS playlist; media segments are fetched over WebTorrent
-      (peers first, origin WebSeed fallback) by the custom fragment loader. Open a
-      <b>second tab</b> to share segments peer-to-peer. Uses the P3X-118/webtorrent fork.
+      hls.js plays the HLS playlist; media segments are fetched over a
+      persistent WebRTC data-channel mesh (HAVE/WANT/DATA protocol). The seeder
+      is signaling-only -- bytes flow browser-to-browser. Open a
+      <b>second tab/device</b> to share segments peer-to-peer.
     </p>
 
-    <!-- Relative srcs so this works under a path prefix (e.g. /p2p/) behind a
-         reverse proxy as well as at the seeder root. -->
     <script src="lib/hls.min.js"></script>
-    <script src="wt-hls-loader.js"></script>
-    <!-- webtorrent.min.js is an ES module (exports a default), so it must be
-         imported, not loaded via a plain <script> (which leaves WebTorrent
-         undefined). hls.js + the loader are UMD globals and stay as scripts. -->
-    <script type="module">
-      import WebTorrent from './lib/webtorrent.min.js';
+    <script src="mesh.js"></script>
+    <script src="mesh-loader.js"></script>
+    <script>
       const video = document.getElementById('v');
       const statsEl = document.getElementById('stats');
       // Default to okast's public HLS master playlist (same origin as the page);
       // override with ?src= for local PoC (e.g. ?src=/media/stream.m3u8).
       const SOURCE = new URLSearchParams(location.search).get('src') || '/hls/stream.m3u8';
+      // ws endpoint is alongside the player (relative -> /p2p/ws behind the edge).
+      const WS_URL = new URL('ws', location.href).href.replace(/^http/, 'ws');
 
       const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0, reasons: {} };
-      const byName = new Map(); // segment name -> manifest entry { magnet, ... }
-      let trackers = [];
-      let wt = null; // shared so refreshManifest can preload upcoming torrents
-
-      // Pre-add an upcoming torrent so WebRTC handshake/peering happens in the
-      // background well before hls.js demands the segment (it plays ~60s behind
-      // the live edge, so the torrent matures during the previous segments).
-      // Without this, per-segment peering can't finish inside the loader deadline.
-      function preload(entry) {
-        if (!wt || !entry || !entry.magnet) return;
-        const magnet = entry.magnet.replace(/[&?]ws=[^&]+/g, '');
-        Promise.resolve(wt.get(magnet))
-          .then(existing => {
-            if (!existing) wt.add(magnet, trackers ? { announce: trackers } : {});
-          })
-          .catch(() => {});
-      }
+      const byName = new Map(); // segment name -> manifest entry
+      let peerCount = 0;
 
       async function refreshManifest() {
         try {
           const m = await (await fetch('manifest.json')).json();
-          trackers = m.trackers || [];
           metrics.chunkSeconds = m.chunkSeconds || 0;
-          (m.live || []).forEach(e => {
-            const isNew = !byName.has(e.name);
-            byName.set(e.name, e);
-            if (isNew) preload(e);
-          });
+          (m.live || []).forEach(e => byName.set(e.name, e));
         } catch (e) {
           /* keep last map */
         }
       }
 
       function start() {
-        wt = new WebTorrent();
-        // The initial refreshManifest ran before wt existed; preload any
-        // entries we already know about now that we have a client.
-        byName.forEach(preload);
         const onBytes = ({ p2p, origin, reason }) => {
           metrics.p2p += p2p || 0;
           metrics.origin += origin || 0;
@@ -84,7 +58,14 @@
         };
         const getEntry = name => byName.get(name) || null;
 
-        const fLoader = window.createWebTorrentFragmentLoader({ wt, getEntry, trackers, onBytes });
+        const mesh = window.createMesh({
+          wsUrl: WS_URL,
+          onPeerCount: n => { peerCount = n; },
+          onBytes, // mesh reports P2P-delivered bytes through here too
+          cacheSize: 30,
+        });
+
+        const fLoader = window.createMeshFragmentLoader({ mesh, getEntry, onBytes });
 
         if (!window.Hls || !Hls.isSupported()) {
           statsEl.textContent = 'hls.js is not supported in this browser.';
@@ -97,8 +78,8 @@
         hls.loadSource(SOURCE);
         hls.attachMedia(video);
 
-        // Report deltas to okast's metrics endpoint (same origin) so the admin
-        // P2P report can aggregate across viewers. Deltas avoid double-counting.
+        // Emit deltas to okast's /api/p2p/report so the admin P2P report can
+        // aggregate across viewers.
         const clientId = Math.random().toString(36).slice(2, 10);
         let lastP2p = 0;
         let lastOrigin = 0;
@@ -107,22 +88,29 @@
           const dO = metrics.origin - lastOrigin;
           lastP2p = metrics.p2p;
           lastOrigin = metrics.origin;
-          const peers = wt.torrents.reduce((n, t) => n + t.numPeers, 0);
           fetch('/api/p2p/report', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             keepalive: true,
-            body: JSON.stringify({ chunkSeconds: metrics.chunkSeconds, peers, p2pBytes: dP, originBytes: dO, clientId }),
+            body: JSON.stringify({
+              chunkSeconds: metrics.chunkSeconds,
+              peers: peerCount,
+              p2pBytes: dP,
+              originBytes: dO,
+              clientId,
+            }),
           }).catch(() => {});
         }, 10000);
 
         setInterval(() => {
           const total = metrics.p2p + metrics.origin || 1;
-          const peers = wt.torrents.reduce((n, t) => n + t.numPeers, 0);
+          const meshStats = mesh.stats();
           statsEl.textContent =
             `source          : ${SOURCE}\n` +
             `chunk seconds   : ${metrics.chunkSeconds}\n` +
-            `peers (now)     : ${peers} across ${wt.torrents.length} torrents\n` +
+            `mesh peers      : ${meshStats.peers}\n` +
+            `cached locally  : ${meshStats.cached}  (we are a provider for these)\n` +
+            `known elsewhere : ${meshStats.knownProviders}  (HAVEs from other peers)\n` +
             `fragments       : ${metrics.fragments}\n` +
             `manifest chunks : ${byName.size}\n` +
             `P2P bytes       : ${fmt(metrics.p2p)}  (${((metrics.p2p / total) * 100).toFixed(0)}%)\n` +
@@ -134,7 +122,6 @@
 
       const fmt = n => (n > 1e6 ? `${(n / 1e6).toFixed(1)}MB` : `${(n / 1e3).toFixed(0)}kB`);
 
-      // Prime the manifest map, then start; keep refreshing for live edges.
       refreshManifest().then(start);
       setInterval(refreshManifest, 3000);
     </script>
