@@ -152,9 +152,12 @@ window.createWebTorrentFragmentLoader = function createWebTorrentFragmentLoader(
       const magnet = entry.magnet.replace(/[&?]ws=[^&]+/g, '');
 
       // Peer deadline; fall back to origin if peers don't deliver in time.
+      // Generous enough to cover WebRTC handshake + transfer when the player
+      // hasn't already preloaded the torrent; with preload, the torrent is
+      // already mature and this should resolve fast.
       this._timer = setTimeout(() => {
         if (!this._settled && !this._aborted) this._httpFallback(context, config, callbacks, 'wt-deadline');
-      }, 8000);
+      }, 20000);
 
       const onTorrent = torrent => {
         const file = torrent.files && torrent.files[0];

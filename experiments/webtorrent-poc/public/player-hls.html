@@ -40,20 +40,42 @@
       const metrics = { p2p: 0, origin: 0, fragments: 0, chunkSeconds: 0, reasons: {} };
       const byName = new Map(); // segment name -> manifest entry { magnet, ... }
       let trackers = [];
+      let wt = null; // shared so refreshManifest can preload upcoming torrents
+
+      // Pre-add an upcoming torrent so WebRTC handshake/peering happens in the
+      // background well before hls.js demands the segment (it plays ~60s behind
+      // the live edge, so the torrent matures during the previous segments).
+      // Without this, per-segment peering can't finish inside the loader deadline.
+      function preload(entry) {
+        if (!wt || !entry || !entry.magnet) return;
+        const magnet = entry.magnet.replace(/[&?]ws=[^&]+/g, '');
+        Promise.resolve(wt.get(magnet))
+          .then(existing => {
+            if (!existing) wt.add(magnet, trackers ? { announce: trackers } : {});
+          })
+          .catch(() => {});
+      }
 
       async function refreshManifest() {
         try {
           const m = await (await fetch('manifest.json')).json();
           trackers = m.trackers || [];
           metrics.chunkSeconds = m.chunkSeconds || 0;
-          (m.live || []).forEach(e => byName.set(e.name, e));
+          (m.live || []).forEach(e => {
+            const isNew = !byName.has(e.name);
+            byName.set(e.name, e);
+            if (isNew) preload(e);
+          });
         } catch (e) {
           /* keep last map */
         }
       }
 
       function start() {
-        const wt = new WebTorrent();
+        wt = new WebTorrent();
+        // The initial refreshManifest ran before wt existed; preload any
+        // entries we already know about now that we have a client.
+        byName.forEach(preload);
         const onBytes = ({ p2p, origin, reason }) => {
           metrics.p2p += p2p || 0;
           metrics.origin += origin || 0;
