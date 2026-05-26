@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "hls.js": "^1.6.16",
+    "p2p-media-loader-hlsjs": "^2.3.1",
     "webtorrent": "3.0.0",
     "ws": "^8.21.0"
   }

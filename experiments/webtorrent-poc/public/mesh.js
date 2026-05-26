@@ -37,7 +37,10 @@ window.createMesh = function createMesh({ wsUrl, onPeerCount, onBytes, cacheSize
   const cacheOrder = [];
   const wants = new Map(); // segName -> { resolve, reject, timer }
   const haveWaiters = new Map(); // segName -> () => void (called when any peer broadcasts HAVE for it)
+  const sendQueues = new Map(); // peerId -> Promise chain (serializes outgoing transfers per peer)
   let myId = null;
+  // Diagnostic counters surfaced via stats().
+  const counters = { sent: 0, recv: 0, dropped: 0, errors: 0 };
 
   const ws = new WebSocket(wsUrl);
   ws.binaryType = 'arraybuffer';
