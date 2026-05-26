@@ -36,6 +36,7 @@ window.createMesh = function createMesh({ wsUrl, onPeerCount, onBytes, cacheSize
   const cache = new Map(); // segName -> ArrayBuffer
   const cacheOrder = [];
   const wants = new Map(); // segName -> { resolve, reject, timer }
+  const haveWaiters = new Map(); // segName -> () => void (called when any peer broadcasts HAVE for it)
   let myId = null;
 
   const ws = new WebSocket(wsUrl);
@@ -160,7 +161,11 @@ window.createMesh = function createMesh({ wsUrl, onPeerCount, onBytes, cacheSize
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
       if (msg.type === 'have') {
-        msg.segs.forEach(s => peer.has.add(s));
+        msg.segs.forEach(s => {
+          peer.has.add(s);
+          const w = haveWaiters.get(s);
+          if (w) w();
+        });
       } else if (msg.type === 'want') {
         const data = cache.get(msg.seg);
         if (!data) {
@@ -257,19 +262,51 @@ window.createMesh = function createMesh({ wsUrl, onPeerCount, onBytes, cacheSize
     try { next[1].dc.send(JSON.stringify({ type: 'want', seg: name })); } catch {}
   }
 
+  function requestFromPeer(name, providerEntry, deadline) {
+    const [, peer] = providerEntry;
+    try { peer.dc.send(JSON.stringify({ type: 'want', seg: name })); }
+    catch (e) { return Promise.reject(e); }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        wants.delete(name);
+        reject(new Error('mesh-deadline'));
+      }, deadline);
+      wants.set(name, { resolve, reject, timer });
+    });
+  }
+
+  // Wait briefly for any peer to broadcast HAVE for `name`. Returns the
+  // provider entry or null on timeout. This is what lets P2P engage at the
+  // synchronized live edge: when multiple peers want the same fresh segment,
+  // a random yield staggers them so whoever wins races to origin first,
+  // caches, broadcasts HAVE -- and the others receive that HAVE and pull
+  // from them over the mesh instead of also hitting the origin.
+  function waitForProvider(name, maxWaitMs) {
+    const immediate = findProvider(name);
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        haveWaiters.delete(name);
+        resolve(findProvider(name));
+      }, maxWaitMs);
+      haveWaiters.set(name, () => {
+        clearTimeout(timer);
+        haveWaiters.delete(name);
+        resolve(findProvider(name));
+      });
+    });
+  }
+
   return {
     fetch(name, deadline = 6000) {
       if (cache.has(name)) return Promise.resolve(cache.get(name));
-      const found = findProvider(name);
-      if (!found) return Promise.reject(new Error('no-peer-has-it'));
-      try { found[1].dc.send(JSON.stringify({ type: 'want', seg: name })); }
-      catch (e) { return Promise.reject(e); }
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          wants.delete(name);
-          reject(new Error('mesh-deadline'));
-        }, deadline);
-        wants.set(name, { resolve, reject, timer });
+      // Random yield (2.5-4.5s) lets the synchronized live-edge race resolve:
+      // one peer's yield ends first, fetches origin, caches, broadcasts HAVE
+      // -- our HAVE waiter resolves before the timeout and we pull via mesh.
+      const yieldMs = 2500 + Math.random() * 2000;
+      return waitForProvider(name, yieldMs).then(found => {
+        if (!found) throw new Error('no-peer-has-it');
+        return requestFromPeer(name, found, deadline);
       });
     },
     cache(name, buf) {
