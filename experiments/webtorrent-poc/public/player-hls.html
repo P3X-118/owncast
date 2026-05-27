@@ -63,11 +63,10 @@
           //     provider after playing past a segment.
           p2p: {
             core: {
-              announceTrackers: [
-                'wss://tracker.novage.com.ua',
-                'wss://tracker.openwebtorrent.com',
-                'wss://tracker.webtorrent.dev',
-              ],
+              // Single tracker. The library docs flag multi-tracker problems in
+              // Safari (SDP signaling); Firefox can hit similar issues. Novage's
+              // own tracker is the library author's reference deployment.
+              announceTrackers: ['wss://tracker.novage.com.ua'],
               // Defaults tuned for live HLS. highDemandTimeWindow tighter than the
               // 15s default so segments >10s ahead are P2P-eligible (with default
               // 15s, every live-edge segment was HTTP-priority). httpDownloadInitialTimeoutMs
