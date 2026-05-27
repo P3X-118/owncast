@@ -54,12 +54,14 @@
           debug: { trace:()=>{}, debug:()=>{}, log:()=>{}, warn:(...a)=>pushEvent('warn ' + a.join(' ').slice(0,120)), error:(...a)=>pushEvent('ERR ' + a.join(' ').slice(0,120)), info:()=>{} },
           lowLatencyMode: false,
           backBufferLength: 30,
-          // Live HLS edge management: stay tighter to live so a stall has room
-          // to recover by seeking forward, and bail out earlier if we fall
-          // behind. With 20s segments, 2 segs sync = 40s behind live edge,
-          // max 3 = force-resync at 60s behind.
-          liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 3,
+          // NOTE: don't tighten liveSyncDurationCount on this stream. With a
+          // 6-segment playlist (~120s window), the defaults already leave only
+          // 3 segments of headroom, and going to 2 made hls.js race the
+          // playlist rotation -- segments dropped out of the playlist mid-load
+          // and stream-controller crashed with "Frag error: can't access
+          // property frag, t is null" loops. The bufferStalledError handler
+          // below is enough to recover from live-edge drift; tightening the
+          // live window on top destabilized bootstrap.
           // p2p-media-loader options. Defaults are tuned for VOD; these
           // adjustments make P2P actually engage for LIVE HLS:
           //   - highDemandTimeWindow defaults to 15s (anything within that of
