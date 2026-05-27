@@ -51,16 +51,26 @@
           // hls.js options
           lowLatencyMode: false,
           backBufferLength: 30,
-          // p2p-media-loader options
+          // p2p-media-loader options. Defaults are tuned for VOD; these
+          // adjustments make P2P actually engage for LIVE HLS:
+          //   - highDemandTimeWindow defaults to 15s (anything within that of
+          //     playback gets HTTP-priority, with P2P aborted). For live with
+          //     ~30s buffer ahead, every segment falls in that zone. Drop it.
+          //   - httpDownloadInitialTimeoutMs defaults to 0 (no startup grace);
+          //     synchronized viewers both race HTTP. Give P2P a window to
+          //     discover the first peer to have a segment.
+          //   - cachedSegmentsCount kept generous so this peer remains a
+          //     provider after playing past a segment.
           p2p: {
             core: {
-              // Public wss trackers (the library defaults to novage + openwebtorrent;
-              // we can self-host bittorrent-tracker later for production scale).
               announceTrackers: [
                 'wss://tracker.novage.com.ua',
                 'wss://tracker.openwebtorrent.com',
                 'wss://tracker.webtorrent.dev',
               ],
+              highDemandTimeWindow: 5,
+              httpDownloadInitialTimeoutMs: 8000,
+              cachedSegmentsCount: 50,
             },
           },
         });
