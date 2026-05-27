@@ -68,8 +68,14 @@
                 'wss://tracker.openwebtorrent.com',
                 'wss://tracker.webtorrent.dev',
               ],
-              highDemandTimeWindow: 5,
-              httpDownloadInitialTimeoutMs: 8000,
+              // Defaults tuned for live HLS. highDemandTimeWindow tighter than the
+              // 15s default so segments >10s ahead are P2P-eligible (with default
+              // 15s, every live-edge segment was HTTP-priority). httpDownloadInitialTimeoutMs
+              // kept short so a browser can ALWAYS bootstrap via HTTP if no peer
+              // is available in time -- larger values starved Firefox/Vivaldi on
+              // first load when no peer existed yet.
+              highDemandTimeWindow: 10,
+              httpDownloadInitialTimeoutMs: 3000,
               cachedSegmentsCount: 50,
             },
           },
