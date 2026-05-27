@@ -42,6 +42,8 @@
 
       const metrics = { httpBytes: 0, p2pBytes: 0, peersConnected: 0, peers: new Set() };
       const reasons = {};
+      const events = []; // ring buffer of recent hls.js events / errors
+      const pushEvent = s => { events.push(`${new Date().toLocaleTimeString()} ${s}`); if (events.length > 8) events.shift(); };
 
       if (!window.Hls || !Hls.isSupported()) {
         statsEl.textContent = 'hls.js is not supported in this browser.';
@@ -49,8 +51,15 @@
         const HlsWithP2P = HlsJsP2PEngine.injectMixin(Hls);
         const hls = new HlsWithP2P({
           // hls.js options
+          debug: { trace:()=>{}, debug:()=>{}, log:()=>{}, warn:(...a)=>pushEvent('warn ' + a.join(' ').slice(0,120)), error:(...a)=>pushEvent('ERR ' + a.join(' ').slice(0,120)), info:()=>{} },
           lowLatencyMode: false,
           backBufferLength: 30,
+          // Live HLS edge management: stay tighter to live so a stall has room
+          // to recover by seeking forward, and bail out earlier if we fall
+          // behind. With 20s segments, 2 segs sync = 40s behind live edge,
+          // max 3 = force-resync at 60s behind.
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 3,
           // p2p-media-loader options. Defaults are tuned for VOD; these
           // adjustments make P2P actually engage for LIVE HLS:
           //   - highDemandTimeWindow defaults to 15s (anything within that of
@@ -105,8 +114,26 @@
         });
 
         hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) statsEl.textContent = `hls.js fatal: ${data.type} / ${data.details}`;
+          pushEvent(`${data.fatal ? 'FATAL' : 'err'} ${data.type}/${data.details}${data.reason ? ' ' + data.reason : ''}`);
+          // Live-edge stall recovery: when the player runs out of buffer on a
+          // live stream, hls.js's default nudge can't recover (there's nothing
+          // to nudge into). Seek to the live edge so playback resumes from a
+          // segment that actually exists in the current playlist.
+          if (!data.fatal && data.details === 'bufferStalledError') {
+            const target = hls.liveSyncPosition;
+            if (target != null && Math.abs(target - video.currentTime) > 1) {
+              pushEvent(`recover: seek ${video.currentTime.toFixed(1)} -> live ${target.toFixed(1)}`);
+              video.currentTime = target;
+            }
+          }
         });
+        // Surface stall + recover so we can tell whether the player is wedged
+        // or just buffering.
+        video.addEventListener('stalled', () => pushEvent('video:stalled'));
+        video.addEventListener('waiting', () => pushEvent('video:waiting'));
+        video.addEventListener('playing', () => pushEvent('video:playing'));
+        video.addEventListener('pause',   () => pushEvent('video:pause'));
+        video.addEventListener('ended',   () => pushEvent('video:ended'));
         hls.loadSource(SOURCE);
         hls.attachMedia(video);
 
@@ -133,6 +160,12 @@
           }).catch(() => {});
         }, 10000);
 
+        const fmtBuf = () => {
+          const b = video.buffered; const out = [];
+          for (let i = 0; i < b.length; i++) out.push(`${b.start(i).toFixed(1)}-${b.end(i).toFixed(1)}`);
+          return out.join(',') || '(empty)';
+        };
+        const readyStates = ['HAVE_NOTHING','HAVE_METADATA','HAVE_CURRENT_DATA','HAVE_FUTURE_DATA','HAVE_ENOUGH_DATA'];
         setInterval(() => {
           const total = metrics.p2pBytes + metrics.httpBytes || 1;
           statsEl.textContent =
@@ -141,7 +174,9 @@
             `P2P bytes       : ${fmt(metrics.p2pBytes)}  (${((metrics.p2pBytes / total) * 100).toFixed(0)}%)\n` +
             `HTTP bytes      : ${fmt(metrics.httpBytes)}  (${((metrics.httpBytes / total) * 100).toFixed(0)}%)\n` +
             `chunks          : ${Object.entries(reasons).map(([k, v]) => `${k}:${v}`).join('  ') || '-'}\n` +
-            `video time      : ${video.currentTime.toFixed(1)}s`;
+            `video time      : ${video.currentTime.toFixed(1)}s  paused=${video.paused} ready=${readyStates[video.readyState]}\n` +
+            `buffered        : ${fmtBuf()}\n` +
+            `events:\n  ${events.join('\n  ') || '(none)'}`;
         }, 1000);
       }
 
