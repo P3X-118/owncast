@@ -12,6 +12,7 @@ import {
 } from '../../../components/stores/ClientConfigStore';
 import { Statusbar } from '../../../components/ui/Statusbar/Statusbar';
 import { OwncastPlayer } from '../../../components/video/OwncastPlayer/OwncastPlayer';
+import { P2PEmbedPlayer, P2PEmbedMode } from '../../../components/video/p2p/P2PEmbedPlayer';
 import { ClientConfig } from '../../../interfaces/client-config.model';
 import { ServerStatus } from '../../../interfaces/server-status.model';
 import { AppStateOptions } from '../../../components/stores/application-state';
@@ -49,6 +50,13 @@ export default function VideoEmbed() {
 
   const initiallyMuted = query.initiallyMuted === 'true';
   const supportsSocialFollow = socialEnabled && query.supportsSocialFollow !== 'false';
+  // mode = 'video+audio' | 'audio' opts the embed into the P2P-HLS player
+  // (hls.js + p2p-media-loader). When absent, the existing VideoJS-based
+  // OwncastPlayer is used so existing embeds (e.g. radio.cooey.club) are
+  // unaffected. "video-only" is intentionally not supported.
+  const mode =
+    query.mode === 'audio' || query.mode === 'video+audio' ? (query.mode as P2PEmbedMode) : null;
+  const debug = query.debug === '1' || query.debug === 'true';
 
   const loadingState = <Skeleton active style={{ padding: '10px' }} paragraph={{ rows: 10 }} />;
 
@@ -75,12 +83,22 @@ export default function VideoEmbed() {
           }
         `}
       </style>
-      <OwncastPlayer
-        source="/hls/stream.m3u8"
-        online={online}
-        initiallyMuted={initiallyMuted}
-        title={streamTitle || name}
-      />
+      {mode ? (
+        <P2PEmbedPlayer
+          source="/hls/stream.m3u8"
+          online={online}
+          mode={mode}
+          initiallyMuted={initiallyMuted}
+          debug={debug}
+        />
+      ) : (
+        <OwncastPlayer
+          source="/hls/stream.m3u8"
+          online={online}
+          initiallyMuted={initiallyMuted}
+          title={streamTitle || name}
+        />
+      )}
       <Statusbar
         online={online}
         lastConnectTime={lastConnectTime}
